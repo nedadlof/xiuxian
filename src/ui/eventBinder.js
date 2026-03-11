@@ -5,6 +5,7 @@ import { handleScriptureUiAction } from './scriptureEvents.js';
 import { handleTradeUiAction } from './tradeEvents.js';
 import { handleDisciplesUiAction } from './disciplesEvents.js';
 import { handleBeastsUiAction } from './beastsEvents.js';
+import { handleMissionsUiAction } from './missionsEvents.js';
 
 function bindAppEvents({ root, app, uiState, helpers = {} }) {
   const {
@@ -39,6 +40,7 @@ function bindAppEvents({ root, app, uiState, helpers = {} }) {
       if (handleTradeUiAction({ action, element, app })) return;
       if (handleDisciplesUiAction({ action, element, root, app, uiState, state, helpers: { renderGame } })) return;
       if (handleBeastsUiAction({ action, element, app })) return;
+      if (handleMissionsUiAction({ action, element, app })) return;
     });
   });
 }

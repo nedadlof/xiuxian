@@ -5,6 +5,7 @@ const APP_TABS = Object.freeze([
   ['barracks', '兵营'],
   ['war', '战争'],
   ['disciples', '弟子'],
+  ['missions', '委托'],
   ['beasts', '灵兽'],
   ['logs', '日志'],
 ]);

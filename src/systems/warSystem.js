@@ -2775,9 +2775,10 @@ function resolveBattleReport(draft, registries, stage, playerTeam, enemyTeam, ro
     lootRolls: [],
   };
   const reward = {};
+  const { expeditionEffects, expeditionBondSnapshot } = collectUnlockedEffects(draft, registries);
+  const expeditionBondEffects = expeditionBondSnapshot?.activeBonds?.flatMap((bond) => bond.effects ?? []) ?? [];
 
   if (victory) {
-    const { expeditionEffects } = collectUnlockedEffects(draft, registries);
     const lootBonus = 1 + sumEffects(expeditionEffects, 'battleLoot');
     const alreadyCleared = draft.war.clearedStages.includes(stage.id);
     const resolvedRewards = resolveStageRewards(stage, lootBonus, alreadyCleared);
@@ -2811,6 +2812,14 @@ function resolveBattleReport(draft, registries, stage, playerTeam, enemyTeam, ro
     mechanics: stage.mechanics ?? [],
     enemyFormation: getEnemyPreview(stage),
     battlePacing: resolveBattlePacing(stage),
+    expeditionSupport: {
+      memberNames: expeditionBondSnapshot?.members?.map((member) => member.name) ?? [],
+      bondNames: expeditionBondSnapshot?.activeBonds?.map((bond) => bond.name) ?? [],
+      bondCount: expeditionBondSnapshot?.activeBonds?.length ?? 0,
+      uniqueFactionCount: expeditionBondSnapshot?.uniqueFactionCount ?? 0,
+      totalResonance: expeditionBondSnapshot?.totalResonance ?? 0,
+      bondEffects: expeditionBondEffects,
+    },
     rounds,
     triggeredMechanicIds: [...new Set(rounds.flatMap((round) => (round.mechanicEvents ?? []).map((event) => event.id)))],
     createdAt: Date.now(),

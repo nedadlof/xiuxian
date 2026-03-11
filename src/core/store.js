@@ -183,6 +183,11 @@ export function createBaseState() {
       totalExchanged: 0,
       lastRouteId: null,
     },
+    commissions: {
+      active: null,
+      completed: [],
+      history: [],
+    },
     logs: [],
   };
 }
@@ -325,6 +330,17 @@ export function normalizeState(savedState = {}) {
     trade: {
       ...base.trade,
       ...(savedState.trade ?? {}),
+    },
+    commissions: {
+      ...base.commissions,
+      ...(savedState.commissions ?? {}),
+      active: savedState.commissions?.active ?? base.commissions.active,
+      completed: Array.isArray(savedState.commissions?.completed)
+        ? savedState.commissions.completed.slice(0, 3)
+        : base.commissions.completed,
+      history: Array.isArray(savedState.commissions?.history)
+        ? savedState.commissions.history.slice(0, 8)
+        : base.commissions.history,
     },
     logs: Array.isArray(savedState.logs)
       ? savedState.logs.slice(0, 80)

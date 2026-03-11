@@ -1240,6 +1240,107 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 13/13`
 
+## war-report-bonds-v116
+- Based on `disciples-expedition-bonds-v115`.
+- Goal: surface disciple expedition bond impact inside war reports and replay summaries, so team-building choices are visible after battle instead of only before deployment.
+- Files touched:
+  - `src/systems/warSystem.js`
+  - `src/ui/warReportView.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- Report model update:
+  - `resolveBattleReport(...)` now records `report.expeditionSupport`
+    - `memberNames`
+    - `bondNames`
+    - `bondCount`
+    - `uniqueFactionCount`
+    - `totalResonance`
+    - `bondEffects`
+- Battle integration:
+  - report data now captures the already-resolved expedition bond snapshot from the shared effect pipeline used by battle reward settlement
+- UI update:
+  - war report history cards now show bond count
+  - report detail panel now shows:
+    - expedition members
+    - active bond names
+    - faction/resonance summary
+    - bond effect breakdown
+- Smoke update:
+  - `War Battle Loop` now verifies the newest battle report records expedition bond data
+- Verified locally:
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/warReportView.js`
+  - `node --check src/dev/uiSmoke.js`
+
+## commissions-idle-loop-v117
+- Based on `war-report-bonds-v116`.
+- Goal: add a dedicated sect commission idle loop driven by the current expedition team, giving disciples a second long-term挂机出口 beyond stage pushing.
+- Files touched:
+  - `src/core/store.js`
+  - `src/app.js`
+  - `src/data/commissions.js` (new)
+  - `src/systems/commissionSystem.js` (new)
+  - `src/ui/tabConfig.js`
+  - `src/ui/panelRenderers.js`
+  - `src/ui/eventBinder.js`
+  - `src/ui/missionsEvents.js` (new)
+  - `src/ui/panels/missionsPanel.js` (new)
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added `state.commissions`
+    - `active`
+    - `completed`
+    - `history`
+  - `normalizeState(...)` now hydrates commission state with size limits for completion/history queues
+- New data/system contracts:
+  - `src/data/commissions.js`
+    - `listCommissionDefinitions()`
+    - `getCommissionDefinition(id)`
+    - `evaluateCommissionTeam(teamSnapshot, definition)`
+  - `src/systems/commissionSystem.js`
+    - `createCommissionSystem()`
+    - `startCommission(...)`
+    - `claimCommissionReward(...)`
+    - `getCommissionSnapshot(state, registries)`
+- Gameplay behavior:
+  - commissions consume no separate roster UI yet; they evaluate the currently configured expedition team
+  - commission result quality is derived from:
+    - disciple rarity
+    - level
+    - resonance
+    - elder status
+    - active expedition bonds
+  - commissions progress through engine ticks, so runtime and offline chunks can both advance them
+  - completed commissions wait for manual settlement, then write rewards and history
+- UI update:
+  - added a new `委托` tab
+  - missions page now shows:
+    - current expedition team summary
+    - running commission progress
+    - available commission cards with predicted reward tier
+    - completed commissions waiting for claim
+    - history summary
+- Smoke update:
+  - added `Commission Idle Loop`
+    - starts a commission
+    - advances time through engine ticks
+    - claims the reward
+    - verifies history persistence
+  - `Navigate All Tabs` now covers 9 tabs
+- Verified locally:
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/ui/missionsEvents.js`
+  - `node --check src/ui/warReportView.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
 ## disciples-resonance-loop-v114
 - Based on `disciples-gacha-systems-v113`.
 - Goal: turn duplicate shard output into a real long-term progression sink by adding disciple resonance advancement, so recruit results keep feeding back into meaningful power growth.

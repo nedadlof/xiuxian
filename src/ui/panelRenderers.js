@@ -6,6 +6,7 @@ import { beastsPanel } from './panels/beastsPanel.js';
 import { disciplesPanel } from './panels/disciplesPanel.js';
 import { barracksPanel } from './panels/barracksPanel.js?v=20260310-11';
 import { warPanel } from './panels/warPanel.js';
+import { missionsPanel } from './panels/missionsPanel.js';
 import { sanitizeUiText } from './textSanitizer.js';
 import { APP_TABS } from './tabConfig.js';
 
@@ -78,6 +79,12 @@ function createPanelRenderers({ uiState = {}, helpers = {} } = {}) {
     }),
     beasts: (state, registries, nextUiState) => beastsPanel(state, registries, {
       tooltipAttr,
+      uiState: nextUiState ?? uiState,
+    }),
+    missions: (state, registries, nextUiState) => missionsPanel(state, registries, {
+      tooltipAttr,
+      formatNumber,
+      formatCostSummary,
       uiState: nextUiState ?? uiState,
     }),
     logs: (state, registries, nextUiState) => logsPanel(state, registries, {

@@ -109,7 +109,7 @@ function createHarness() {
     }
     clearUiTimers(uiState);
     assert(app.store.getState().meta.activeTab === tabKey, `切换到 ${tabKey} 失败`);
-    const expectedHeading = TAB_EXPECTATIONS[tabKey];
+    const expectedHeading = TAB_EXPECTATIONS[tabKey] ?? (tabKey === 'missions' ? '宗门委托' : tabKey);
     assert(root.textContent.includes(expectedHeading), `Tab ${tabKey} 未渲染预期标题: ${expectedHeading}`);
   }
 
@@ -358,6 +358,23 @@ async function runSmoke() {
       return `弟子 ${ownedId} 等级 ${beforeLevel} -> ${afterLevel}`;
     });
 
+    await runCase('Commission Idle Loop', async () => {
+      harness.goToTab('missions');
+      const beforeState = harness.app.store.getState();
+      const beforeLingStone = beforeState.resources?.lingStone ?? 0;
+      clickAction('start-commission', (element) => !element.disabled);
+      let commissionState = harness.app.store.getState();
+      assert(commissionState.commissions?.active, '委托未成功开始');
+      harness.app.engine.runTick(300, 'smoke');
+      commissionState = harness.app.store.getState();
+      assert((commissionState.commissions?.completed?.length ?? 0) > 0, '委托未在挂机后完成');
+      clickAction('claim-commission', (element) => !element.disabled);
+      const afterState = harness.app.store.getState();
+      assert((afterState.commissions?.history?.length ?? 0) > 0, '委托记录未写入历史');
+      assert((afterState.resources?.lingStone ?? 0) >= beforeLingStone, '委托结算后资源未增加');
+      return `委托完成并结算，历史 ${afterState.commissions.history.length} 条`;
+    });
+
     await runCase('War Auto Preferences And Controls', async () => {
       harness.goToTab('war');
       clickAction('battle-auto-strategy', (element) => element.dataset.id === 'focus-lowest-hp');
@@ -408,6 +425,7 @@ async function runSmoke() {
 
       const afterState = harness.app.store.getState();
       const afterReports = afterState.war.battleReports.length;
+      assert((afterState.war.battleReports?.[0]?.expeditionSupport?.bondCount ?? 0) > 0, '战报未记录出征羁绊');
       assert(afterReports > beforeReports, `战斗未生成战报: before=${beforeReports}, after=${afterReports}`);
       assert(root.textContent.includes('战斗回放'), '战争页未渲染战斗回放');
       assert(root.textContent.includes('历次战报'), '战争页未渲染历次战报');

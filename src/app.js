@@ -9,6 +9,7 @@ import { createScriptureSystem } from './systems/scriptureSystem.js';
 import { createDisciplesBeastsSystem } from './systems/disciplesBeastsSystem.js';
 import { createTradeSystem } from './systems/tradeSystem.js';
 import { createWarSystem } from './systems/warSystem.js?v=20260310-11';
+import { createCommissionSystem } from './systems/commissionSystem.js';
 
 export function createGameApp() {
   const bus = createEventBus();
@@ -24,6 +25,7 @@ export function createGameApp() {
   engine.registerSystem(createTradeSystem());
   engine.registerSystem(createWarSystem());
   engine.registerSystem(createDisciplesBeastsSystem());
+  engine.registerSystem(createCommissionSystem());
 
   function hydrate() {
     const savedState = saveManager.load();
