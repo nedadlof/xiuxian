@@ -1,3 +1,4 @@
+import { getExpeditionBondSnapshot } from '../../data/expeditionBonds.js';
 import { getDisciplesSnapshot } from '../../systems/disciplesBeastsSystem.js';
 
 function sortByRarity(getRarityRank, left, right) {
@@ -17,6 +18,7 @@ function renderBatchSummary(batch) {
   if (!batch.length) {
     return '<span>暂无最新批次</span>';
   }
+
   return batch.map((entry) => `<span>${entry.discipleName}${entry.duplicate ? ` · +${entry.shardReward} 碎片` : ''}</span>`).join('');
 }
 
@@ -26,6 +28,74 @@ function renderResonanceSummary(disciple) {
 
 function getFactionLabel(factionOptions, factionId) {
   return factionOptions.find((item) => item.id === factionId)?.label ?? factionId ?? '散修';
+}
+
+function buildTeamMembers(disciples, team = {}) {
+  const orderedIds = [team.leaderId ?? null, ...(team.supportIds ?? [])].filter(Boolean);
+  const seen = new Set();
+  return orderedIds
+    .filter((discipleId) => {
+      if (seen.has(discipleId)) {
+        return false;
+      }
+      seen.add(discipleId);
+      return true;
+    })
+    .map((discipleId) => disciples.find((disciple) => disciple.id === discipleId))
+    .filter(Boolean);
+}
+
+function formatBondPercent(value) {
+  const safeValue = Number(value) || 0;
+  const sign = safeValue >= 0 ? '+' : '';
+  return `${sign}${Math.round(safeValue * 100)}%`;
+}
+
+function getBondEffectLabel(effectType) {
+  switch (effectType) {
+    case 'battleAttack':
+      return '攻势';
+    case 'battleDefense':
+      return '守势';
+    case 'battleSustain':
+      return '续航';
+    case 'battleLoot':
+      return '战利';
+    case 'unitPowerMultiplier':
+      return '战力';
+    default:
+      return effectType;
+  }
+}
+
+function renderBondEffectSummary(effects = []) {
+  return effects.map((effect) => `${getBondEffectLabel(effect.type)} ${formatBondPercent(effect.value)}`).join(' · ');
+}
+
+function renderBondList(snapshot) {
+  if (!snapshot?.activeBonds?.length) {
+    return '<div class="muted">当前未激活羁绊</div>';
+  }
+
+  return snapshot.activeBonds.map((bond) => `
+    <div class="card">
+      <div class="card-title"><strong>${bond.name}</strong><span class="tag">${renderBondEffectSummary(bond.effects)}</span></div>
+      <div class="muted">${bond.description}</div>
+    </div>
+  `).join('');
+}
+
+function renderTeamNames(teamMembers = [], emptyLabel = '未选择') {
+  if (!teamMembers.length) {
+    return emptyLabel;
+  }
+
+  return teamMembers.map((member) => member.name).join(' · ');
+}
+
+function isSameTeam(left, right) {
+  return (left?.leaderId ?? null) === (right?.leaderId ?? null)
+    && JSON.stringify(left?.supportIds ?? []) === JSON.stringify(right?.supportIds ?? []);
 }
 
 export function disciplesPanel(state, registries, deps = {}) {
@@ -63,10 +133,18 @@ export function disciplesPanel(state, registries, deps = {}) {
   const recruitable = disciples.filter((item) => item.unlocked && !item.owned);
   const focusDisciple = recruitPool.focusId ? disciples.find((item) => item.id === recruitPool.focusId) : null;
   const selectedFaction = recruitPool.factionOptions.find((item) => item.id === recruitPool.selectedFactionId) ?? null;
-  const pendingTeam = {
-    leaderId: uiState?.pendingTeam?.leaderId ?? state.disciples.expeditionTeam?.leaderId ?? null,
-    supportIds: [...(uiState?.pendingTeam?.supportIds ?? state.disciples.expeditionTeam?.supportIds ?? [])],
+  const activeTeam = disciples.expedition ?? {
+    leaderId: state.disciples.expeditionTeam?.leaderId ?? null,
+    supportIds: [...(state.disciples.expeditionTeam?.supportIds ?? [])],
+    members: [],
+    bonds: { activeBonds: [], totalResonance: 0, uniqueFactionCount: 0 },
   };
+  const pendingTeam = {
+    leaderId: uiState?.pendingTeam?.leaderId ?? activeTeam.leaderId ?? null,
+    supportIds: [...(uiState?.pendingTeam?.supportIds ?? activeTeam.supportIds ?? [])],
+  };
+  const pendingMembers = buildTeamMembers(disciples, pendingTeam);
+  const pendingBondSnapshot = getExpeditionBondSnapshot(pendingMembers);
   const resonanceReadyCount = owned.filter((item) => item.canAdvanceResonance).length;
   const resonancePriorityTarget = [...owned]
     .filter((item) => item.canAdvanceResonance)
@@ -196,13 +274,9 @@ export function disciplesPanel(state, registries, deps = {}) {
               `培养花费：${formatCostSummary(disciple.trainingCost)}`,
               renderResonanceSummary(disciple),
               `共鸣增幅：+${Math.round((disciple.resonanceBonus ?? 0) * 100)}%`,
-              disciple.canAdvanceResonance
-                ? `下次突破：${formatCostSummary(disciple.resonanceCost)}`
-                : '命魂共鸣已满阶',
+              disciple.canAdvanceResonance ? `下次突破：${formatCostSummary(disciple.resonanceCost)}` : '命魂共鸣已满阶',
               `当前倍率：x${(disciple.effectMultiplier ?? 1).toFixed(2)}`,
-              disciple.canAdvanceResonance
-                ? `突破后倍率：x${(disciple.nextEffectMultiplier ?? disciple.effectMultiplier ?? 1).toFixed(2)}`
-                : null,
+              disciple.canAdvanceResonance ? `突破后倍率：x${(disciple.nextEffectMultiplier ?? disciple.effectMultiplier ?? 1).toFixed(2)}` : null,
             ])}>
               <div>
                 <div class="card-title">
@@ -215,8 +289,8 @@ export function disciplesPanel(state, registries, deps = {}) {
               </div>
               <div class="inline-actions">
                 <button class="ghost" data-action="station-disciple" data-id="${disciple.id}" data-building="${disciple.station ?? ''}">驻守</button>
-                <button class="ghost" data-action="set-leader" data-id="${disciple.id}">主将</button>
-                <button class="ghost" data-action="toggle-support" data-id="${disciple.id}">副将</button>
+                <button class="${pendingTeam.leaderId === disciple.id ? 'secondary' : 'ghost'}" data-action="set-leader" data-id="${disciple.id}">主将</button>
+                <button class="${pendingTeam.supportIds.includes(disciple.id) ? 'secondary' : 'ghost'}" data-action="toggle-support" data-id="${disciple.id}">副将</button>
                 <button class="ghost" ${disciple.canTrain ? '' : 'disabled'} data-action="train-disciple" data-id="${disciple.id}" data-amount="1" ${tooltipAttr([`培养花费：${formatCostSummary(disciple.trainingCost)}`, `当前等级：Lv.${disciple.level}`, `当前倍率：x${(disciple.effectMultiplier ?? 1).toFixed(2)}`])}>培养</button>
                 <button class="ghost" ${disciple.canTrain ? '' : 'disabled'} data-action="train-disciple" data-id="${disciple.id}" data-amount="5">x5</button>
                 <button class="ghost" ${disciple.canAdvanceResonance ? '' : 'disabled'} data-action="advance-disciple" data-id="${disciple.id}" ${tooltipAttr([
@@ -236,13 +310,28 @@ export function disciplesPanel(state, registries, deps = {}) {
         </div>
       </section>
       <section class="panel">
-        <div class="panel-title"><h3>当前出征队</h3><span class="tag">最多 1 主将 + 2 副将</span></div>
-        <div class="card">
-          <div class="muted">主将</div>
-          <strong>${pendingTeam.leaderId ? (disciples.find((item) => item.id === pendingTeam.leaderId)?.name ?? pendingTeam.leaderId) : '未选择'}</strong>
-          <div class="muted">副将：${(pendingTeam.supportIds ?? []).map((id) => disciples.find((item) => item.id === id)?.name ?? id).join(' · ') || '未选择'}</div>
-          <div class="inline-actions">
-            <button class="secondary" data-action="apply-team">应用出征队</button>
+        <div class="panel-title"><h3>出征羁绊</h3><span class="tag">最多 1 主将 + 2 副将</span></div>
+        <div class="grid">
+          <div class="card">
+            <div class="card-title"><strong>当前生效队伍</strong><span class="tag">${activeTeam.members.length} / 3</span></div>
+            <div class="muted">主将：${activeTeam.leaderId ? (disciples.find((item) => item.id === activeTeam.leaderId)?.name ?? activeTeam.leaderId) : '未选择'}</div>
+            <div class="muted">副将：${renderTeamNames(activeTeam.members.filter((member) => member.id !== activeTeam.leaderId), '未选择')}</div>
+            <div class="muted">阵营数 ${activeTeam.bonds?.uniqueFactionCount ?? 0} · 总共鸣 ${activeTeam.bonds?.totalResonance ?? 0}</div>
+            <div class="grid">
+              ${renderBondList(activeTeam.bonds)}
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title"><strong>待应用预览</strong><span class="tag">${pendingMembers.length} / 3</span></div>
+            <div class="muted">成员：${renderTeamNames(pendingMembers)}</div>
+            <div class="muted">阵营数 ${pendingBondSnapshot.uniqueFactionCount} · 总共鸣 ${pendingBondSnapshot.totalResonance}</div>
+            <div class="grid">
+              ${renderBondList(pendingBondSnapshot)}
+            </div>
+            <div class="inline-actions">
+              <button class="secondary" data-action="apply-team" ${pendingMembers.length ? '' : 'disabled'}>应用出征队</button>
+              <span class="muted">${isSameTeam(pendingTeam, activeTeam) ? '当前预览与已生效队伍一致' : '切换队伍后，新的羁绊会立刻影响战斗结算'}</span>
+            </div>
           </div>
         </div>
         ${recruitPool.history.length ? `

@@ -1182,6 +1182,64 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 13/13`
 
+## disciples-expedition-bonds-v115
+- Based on `disciples-gacha-systems-v113`.
+- Goal: add a real team-composition payoff to disciples by introducing expedition bond rules, team preview, and safer team selection contracts.
+- Files touched:
+  - `src/data/expeditionBonds.js` (new)
+  - `src/systems/shared/effectResolver.js`
+  - `src/systems/disciplesBeastsSystem.js`
+  - `src/ui/disciplesEvents.js`
+  - `src/ui/panels/disciplesPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- New bond data module:
+  - added `src/data/expeditionBonds.js`
+  - exported interfaces:
+    - `listExpeditionBondDefinitions()`
+    - `getExpeditionBondSnapshot(teamMembers)`
+    - `getExpeditionBondEffects(teamMembers)`
+  - current bond set covers:
+    - same-faction pairing
+    - 3 unique factions
+    - dual legendary lineup
+    - total resonance threshold
+    - elder pressure support
+- Shared effect integration:
+  - `collectUnlockedEffects(...)` now resolves expedition team members into:
+    - `teamBondEffects`
+    - `expeditionBondSnapshot`
+  - bond effects are merged into `all`, so war/economy consumers keep using the same interface without special-case code
+- Disciple system update:
+  - added expedition team normalization helper so:
+    - leader/support entries do not duplicate
+    - support list stays capped and leader-safe
+  - `getDisciplesSnapshot(...)` now exposes:
+    - `disciples.expedition.members`
+    - `disciples.expedition.bonds`
+- UI update:
+  - disciples page now shows a dedicated `出征羁绊` section with:
+    - current live team
+    - pending team preview
+    - active bond cards and effect summaries
+  - owned disciple cards now reflect pending leader/support selection with button state
+  - pending selection and applied team are clearer, reducing accidental bad team setups
+- Smoke update:
+  - `Disciples Train And Team Flow` now also verifies:
+    - two support disciples can be added
+    - expedition team stores both supports
+    - `三脉同游` bond preview appears after applying a 3-faction lineup
+- Verified locally:
+  - `node --check src/data/expeditionBonds.js`
+  - `node --check src/systems/shared/effectResolver.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/ui/disciplesEvents.js`
+  - `node --check src/ui/panels/disciplesPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 55`
+  - result:
+    - `SMOKE PASS 13/13`
+
 ## disciples-resonance-loop-v114
 - Based on `disciples-gacha-systems-v113`.
 - Goal: turn duplicate shard output into a real long-term progression sink by adding disciple resonance advancement, so recruit results keep feeding back into meaningful power growth.

@@ -343,10 +343,15 @@ async function runSmoke() {
       clickAction('train-disciple', (element) => element.dataset.id === ownedId && element.dataset.amount === '1');
       clickAction('advance-disciple', (element) => element.dataset.id === ownedId);
       clickAction('set-leader', (element) => element.dataset.id === ownedId);
+      clickAction('toggle-support', (element) => element.dataset.id === 'wu-tie');
+      clickAction('toggle-support', (element) => element.dataset.id === 'su-qinghe');
       clickAction('apply-team');
       const afterState = harness.app.store.getState();
       const afterLevel = afterState.disciples.levels?.[ownedId] ?? 1;
       const afterResonance = afterState.disciples.resonance?.[ownedId] ?? 0;
+      assert(afterState.disciples.expeditionTeam.supportIds.includes('wu-tie'), '出征副将未包含乌铁');
+      assert(afterState.disciples.expeditionTeam.supportIds.includes('su-qinghe'), '出征副将未包含苏轻荷');
+      assert(root.textContent.includes('三脉同游'), '出征羁绊预览未显示三脉同游');
       assert(afterResonance > beforeResonance, `弟子共鸣突破未生效: before=${beforeResonance}, after=${afterResonance}`);
       assert(afterLevel > beforeLevel, `弟子培养未生效: before=${beforeLevel}, after=${afterLevel}`);
       assert(afterState.disciples.expeditionTeam.leaderId === ownedId, '弟子出征主将未应用');

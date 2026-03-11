@@ -6,6 +6,7 @@ import {
   getDiscipleResonanceCost,
   getDiscipleResonanceTitle,
 } from '../data/discipleAdvancement.js';
+import { getExpeditionBondSnapshot } from '../data/expeditionBonds.js';
 import {
   filterCandidatesByGuarantee,
   getActiveRecruitBanner,
@@ -85,6 +86,24 @@ function removeFromExpedition(state, discipleId) {
   }
 
   state.disciples.expeditionTeam.supportIds = state.disciples.expeditionTeam.supportIds.filter((id) => id !== discipleId);
+}
+
+function normalizeExpeditionTeamSelection(leaderId, supportIds = []) {
+  const uniqueSupportIds = [];
+  for (const discipleId of supportIds) {
+    if (!discipleId || discipleId === leaderId || uniqueSupportIds.includes(discipleId)) {
+      continue;
+    }
+    uniqueSupportIds.push(discipleId);
+    if (uniqueSupportIds.length >= 2) {
+      break;
+    }
+  }
+
+  return {
+    leaderId: leaderId ?? null,
+    supportIds: uniqueSupportIds,
+  };
 }
 
 function isAdvancedFamilyMode(mode) {
@@ -456,7 +475,8 @@ export function assignExpeditionTeam({ store, registries }, leaderId, supportIds
 
   store.update((draft) => {
     ensureCharacterState(draft);
-    const allIds = [leaderId, ...supportIds].filter(Boolean);
+    const normalizedTeam = normalizeExpeditionTeamSelection(leaderId, supportIds);
+    const allIds = [normalizedTeam.leaderId, ...normalizedTeam.supportIds].filter(Boolean);
     if (allIds.some((discipleId) => !isOwnedDisciple(draft, discipleId) || hasCooldown(draft, discipleId))) {
       return;
     }
@@ -468,8 +488,8 @@ export function assignExpeditionTeam({ store, registries }, leaderId, supportIds
       setCooldown(draft, discipleId);
     }
 
-    draft.disciples.expeditionTeam.leaderId = leaderId ?? null;
-    draft.disciples.expeditionTeam.supportIds = supportIds.slice(0, 2);
+    draft.disciples.expeditionTeam.leaderId = normalizedTeam.leaderId;
+    draft.disciples.expeditionTeam.supportIds = normalizedTeam.supportIds;
     appendLog(draft, 'disciples', '更新出征阵容');
     success = true;
   }, { type: 'disciples/assign-expedition', leaderId, supportIds });
@@ -765,6 +785,21 @@ export function getDisciplesSnapshot(state, registries) {
       },
       thresholds: getRecruitPityThresholds(),
     },
+  };
+
+  const expeditionMembers = [
+    state.disciples.expeditionTeam?.leaderId ?? null,
+    ...(state.disciples.expeditionTeam?.supportIds ?? []),
+  ]
+    .filter(Boolean)
+    .map((discipleId) => disciples.find((disciple) => disciple.id === discipleId))
+    .filter(Boolean);
+
+  disciples.expedition = {
+    leaderId: state.disciples.expeditionTeam?.leaderId ?? null,
+    supportIds: [...(state.disciples.expeditionTeam?.supportIds ?? [])],
+    members: expeditionMembers,
+    bonds: getExpeditionBondSnapshot(expeditionMembers),
   };
 
   return disciples;

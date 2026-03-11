@@ -1,4 +1,5 @@
 import { getDiscipleEffectMultiplier } from '../../data/discipleTraining.js';
+import { getExpeditionBondEffects, getExpeditionBondSnapshot } from '../../data/expeditionBonds.js';
 
 export function collectUnlockedEffects(state, registries) {
   const techEffects = state.scripture.unlockedNodes.flatMap((id) => registries.techNodes.get(id)?.effects ?? []);
@@ -36,6 +37,21 @@ export function collectUnlockedEffects(state, registries) {
       })));
     }
   }
+  const expeditionMembers = expeditionIds
+    .map((discipleId) => {
+      const disciple = registries.disciples.get(discipleId);
+      if (!disciple) {
+        return null;
+      }
+      return {
+        ...disciple,
+        resonanceLevel: state.disciples.resonance?.[discipleId] ?? 0,
+        elder: (state.disciples.elders ?? []).includes(discipleId),
+      };
+    })
+    .filter(Boolean);
+  const expeditionBondSnapshot = getExpeditionBondSnapshot(expeditionMembers);
+  const teamBondEffects = getExpeditionBondEffects(expeditionMembers);
 
   const beastEffects = state.beasts.activeIds.flatMap((id) => registries.beasts.get(id)?.modifiers ?? []);
 
@@ -43,8 +59,10 @@ export function collectUnlockedEffects(state, registries) {
     techEffects,
     discipleEffects,
     expeditionEffects,
+    teamBondEffects,
+    expeditionBondSnapshot,
     beastEffects,
-    all: [...techEffects, ...discipleEffects, ...expeditionEffects, ...beastEffects],
+    all: [...techEffects, ...discipleEffects, ...expeditionEffects, ...teamBondEffects, ...beastEffects],
   };
 }
 

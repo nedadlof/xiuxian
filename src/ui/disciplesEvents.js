@@ -40,7 +40,9 @@ function handleDisciplesUiAction({ action, element, root, app, uiState, state, h
       uiState.pendingTeam = {
         ...(uiState.pendingTeam ?? {}),
         leaderId: element.dataset.id,
-        supportIds: [...(uiState.pendingTeam?.supportIds ?? state.disciples.expeditionTeam?.supportIds ?? [])],
+        supportIds: [...(uiState.pendingTeam?.supportIds ?? state.disciples.expeditionTeam?.supportIds ?? [])]
+          .filter((id) => id !== element.dataset.id)
+          .slice(0, 2),
       };
       renderGame?.(root, app, uiState);
       return true;
@@ -48,7 +50,9 @@ function handleDisciplesUiAction({ action, element, root, app, uiState, state, h
       const supportIds = [...(uiState.pendingTeam?.supportIds ?? state.disciples.expeditionTeam?.supportIds ?? [])];
       const discipleId = element.dataset.id;
       const exists = supportIds.includes(discipleId);
-      const next = exists ? supportIds.filter((item) => item !== discipleId) : [...supportIds, discipleId].slice(0, 2);
+      const next = exists
+        ? supportIds.filter((item) => item !== discipleId)
+        : [...supportIds.filter((item) => item !== (uiState.pendingTeam?.leaderId ?? state.disciples.expeditionTeam?.leaderId ?? null)), discipleId].slice(0, 2);
       uiState.pendingTeam = {
         leaderId: uiState.pendingTeam?.leaderId ?? state.disciples.expeditionTeam?.leaderId ?? null,
         supportIds: next,
