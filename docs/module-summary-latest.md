@@ -1,0 +1,1448 @@
+# Module Summary (UTF-8)
+
+This file is a UTF-8 continuation summary because `docs/module-summary.md` is not UTF-8 and cannot be safely patched via the `apply_patch` tool. Keep appending new module steps here going forward.
+
+## war-battle-tooltip-extract-v60
+- Based on `war-battle-ui-extract-v59`.
+- Goal: modularize battle target tooltip line generation by moving it into `src/ui/warBattleUi.js` with dependency injection.
+- Files touched:
+  - `src/ui/warBattleUi.js`
+  - `src/ui/renderApp.js`
+- New helper interface:
+  - `createBattleTargetTooltipLines({ formatNumber, getTagLabel, formatBattlePreviewLines })`
+    - returns `getBattleTargetTooltipLines(target)` for UI mapping
+    - keeps `warBattleUi.js` independent from `renderApp.js`-local formatters
+- `renderApp` integration update:
+  - `renderActiveBattlePanel(...)` creates the injected helper and passes it to the battle view.
+- Verified locally:
+  - `node --check src/ui/warBattleUi.js`
+  - `node --check src/ui/renderApp.js`
+
+## war-battle-preview-formatter-extract-v61
+- Based on `war-battle-tooltip-extract-v60`.
+- Goal: centralize battle preview line wording behind an injectable formatter, so copy changes do not require touching render code.
+- Files touched:
+  - `src/ui/warBattleUi.js`
+  - `src/ui/renderApp.js`
+- New helper interface:
+  - `createBattlePreviewFormatter(options?)` in `src/ui/warBattleUi.js`
+    - returns `{ formatBattlePreviewLines, getBattlePreviewSummary }`
+    - supports optional injection hooks:
+      - `renderMissingLine(label)`
+      - `renderSummaryLine(label, summary)`
+  - `formatBattlePreviewLines` / `getBattlePreviewSummary` remain exported (backed by a default formatter).
+  - `createBattleTargetTooltipLines(...)` now also accepts `previewFormatter` (legacy `formatBattlePreviewLines` param still works).
+- `renderApp` integration update:
+  - `renderActiveBattlePanel(...)` creates `previewFormatter = createBattlePreviewFormatter()` and passes derived functions to the battle view + tooltip factory.
+- Verified locally:
+  - `node --check src/ui/warBattleUi.js`
+  - `node --check src/ui/renderApp.js`
+
+## war-battle-panel-extract-v62
+- Based on `war-battle-preview-formatter-extract-v61`.
+- Goal: move the remaining battle panel “presenter” logic out of `renderApp.js`, keeping `renderApp.js` as a page coordinator.
+- Files touched:
+  - `src/ui/warBattlePanel.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - added `renderActiveBattlePanel(activeBattle, uiState, deps)` in `src/ui/warBattlePanel.js`
+    - `deps` is injected to avoid cross-module UI coupling:
+      - `tooltipAttr`, `formatNumber`, `getTagLabel`, `getEncounterTypeLabel`
+      - `renderWarActionCards`, `getTransientUiFeedback`
+    - internally builds `previewFormatter`, tooltip lines, selection + derived previews, then delegates to `renderActiveBattlePanelView(...)`
+- `renderApp` integration update:
+  - removed local `renderActiveBattlePanel(...)` implementation
+  - war panel now calls the extracted renderer with dependency injection
+- Verified locally:
+  - `node --check src/ui/warBattlePanel.js`
+  - `node --check src/ui/renderApp.js`
+
+## war-action-ui-extract-v63
+- Based on `war-battle-panel-extract-v62`.
+- Goal: extract war action tooltip/card rendering out of `renderApp.js` so both live battle + replay share the same UI helpers.
+- Files touched:
+  - `src/ui/warActionUi.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - added `createWarActionUi({ tooltipAttr, formatNumber })` in `src/ui/warActionUi.js`
+    - returns:
+      - `getWarActionTypeLabel(actionType)`
+      - `buildWarActionTags(action)`
+      - `buildWarActionTooltip(action)`
+      - `renderWarActionCards(actions)`
+- `renderApp` integration update:
+  - removed local implementations of the above helpers
+  - `warPanel(...)` now creates `warActionUi` once and passes the helpers into:
+    - `renderActiveBattlePanel(..., { renderWarActionCards })`
+    - `renderWarReplaySection(...)` params (`getWarActionTypeLabel`, `buildWarActionTooltip`, `buildWarActionTags`, `renderWarActionCards`)
+- Verified locally:
+  - `node --check src/ui/warActionUi.js`
+  - `node --check src/ui/renderApp.js`
+
+## war-events-extract-v64
+- Based on `war-action-ui-extract-v63`.
+- Goal: extract war-related UI event handling out of `renderApp.js` so extending battle/replay interactions stays localized.
+- Files touched:
+  - `src/ui/warEvents.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - added `handleWarUiAction({ action, element, root, app, uiState, state, helpers })` in `src/ui/warEvents.js`
+    - returns `true` when action is handled
+    - `helpers` injection keeps module decoupled from `renderApp.js`:
+      - `renderGame(root, app, uiState)`
+      - `syncReplayAfterWarAction(uiState, app)`
+      - `setTransientUiFeedback(uiState, key, message)`
+    - handles:
+      - battle controls: `battle-*`, stage/formation/unit actions, target select
+      - report filters/sorting/paging: `set-war-report-*`, `war-report-page-*`, `select-war-report`
+      - replay controls: `war-replay-*`
+- `renderApp` integration update:
+  - `bindEvents(...)` now delegates to `handleWarUiAction(...)` before the main switch
+  - removed war-specific `case` blocks from the main switch
+- Verified locally:
+  - `node --check src/ui/warEvents.js`
+  - `node --check src/ui/renderApp.js`
+
+## war-schedulers-extract-v65
+- Based on `war-events-extract-v64`.
+- Goal: extract war replay/autobattle scheduling + replay sync glue out of `renderApp.js`.
+- Files touched:
+  - `src/ui/warSchedulers.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `scheduleWarReplay(root, app, uiState, { renderGame })`
+  - `scheduleWarAutoBattle(root, app, uiState, { renderGame, syncReplayAfterWarAction })`
+  - `syncReplayAfterWarAction(uiState, app, { setTransientUiFeedback })`
+  - `clearWarAutoTimer(uiState)` (internal timer management export for future use)
+- `renderApp` integration update:
+  - removed local implementations of `scheduleWarReplay`, `scheduleWarAutoBattle`, `syncReplayAfterWarAction`
+  - `renderGame(...)` now calls the imported schedulers and injects required helpers
+  - `bindEvents(...)` passes a wrapped `syncReplayAfterWarAction` into `handleWarUiAction(...)` (keeps feedback injection intact)
+- Verified locally:
+  - `node --check src/ui/warSchedulers.js`
+  - `node --check src/ui/renderApp.js`
+
+## war-auto-preferences-view-extract-v66
+- Based on `war-schedulers-extract-v65`.
+- Goal: move the default auto-battle preference card out of the Economy panel and into the War page as a dedicated view module (fixes undefined variable usage that can blank the page).
+- Files touched:
+  - `src/ui/warAutoPreferencesView.js` (new)
+  - `src/ui/renderApp.js`
+- New view module contract:
+  - added `renderWarAutoPreferencesCard(params)` in `src/ui/warAutoPreferencesView.js`
+    - renders the auto-battle preference card UI (strategy + speed buttons)
+    - expects meta + options helpers to be injected:
+      - `getAutoBattleStrategyMeta/getAutoBattleSpeedMeta`
+      - `getAutoBattleStrategyOptions/getAutoBattleSpeedOptions`
+- `renderApp` integration update:
+  - removed the auto-preference card block from `economyPanel(...)`
+  - added the card into `warPanel(...)` (between stage progression and the active battle panel)
+- Verified locally:
+  - `node --check src/ui/warAutoPreferencesView.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-transient-feedback-module-v67
+- Based on `war-auto-preferences-view-extract-v66`.
+- Goal: provide a shared, minimal transient UI feedback store for “saved/changed” chips and battle control hints; fixes runtime `ReferenceError` risk where feedback helpers were referenced but not defined.
+- Files touched:
+  - `src/ui/transientFeedback.js` (new)
+  - `src/ui/renderApp.js`
+- New helper interface:
+  - `setTransientUiFeedback(uiState, key, message)`
+  - `getTransientUiFeedback(uiState, key, durationMs)` -> `{ message, createdAt } | null` (auto-expires when duration passes)
+- `renderApp` integration update:
+  - `renderApp.js` now imports the above helpers instead of relying on undefined globals
+  - existing injections remain compatible:
+    - passed to `warEvents` / `warSchedulers` / `warBattlePanel` through the existing dependency injection points
+- Verified locally:
+  - `node --check src/ui/transientFeedback.js`
+  - `node --check src/ui/renderApp.js`
+
+## war-panel-presenter-extract-v68
+- Based on `ui-transient-feedback-module-v67`.
+- Goal: move war page derived-state assembly (filtering/paging/replay frame/hp%) out of `renderApp.js` into a presenter module.
+- Files touched:
+  - `src/ui/warPanelPresenter.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `buildWarPanelViewModel(state, registries, uiState, { getWarSnapshot, getTransientUiFeedback })`
+    - returns a view model with:
+      - reports: `reportFilter/reportSort/sortedReports/pagedReports/reportPage/reportPageCount`
+      - replay: `replay/frame/rounds/currentRound/currentAction/replaySpeed`
+      - ui: `autoPreferenceFeedback/battleResultFeedback`
+      - battle: `activeBattle/battleLocked/defaultAutoStrategy/defaultAutoSpeed`
+      - context: `war/formations/currentStage/latestReport/selectedReport/stageEnemyPreview`
+- `renderApp` integration update:
+  - `warPanel(...)` now calls `buildWarPanelViewModel(...)` and uses the view model to render sections.
+  - removed direct `WAR_REPORT_PAGE_SIZE` paging math from `renderApp.js` (now lives in presenter).
+- Verified locally:
+  - `node --check src/ui/warPanelPresenter.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-tooltip-binder-extract-v69
+- Based on `war-panel-presenter-extract-v68`.
+- Goal: extract tooltip binding/positioning out of `renderApp.js` to enable future tooltip UX upgrades (persistent hover, pinning, anti-flicker).
+- Files touched:
+  - `src/ui/tooltipBinder.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `bindTooltips(root, deps?)`
+  - `positionTooltip(tooltip, event)` (exported for future reuse)
+  - supports optional injection: `deps.resolveElement(target)` (defaults to closest `[data-tooltip]`)
+- `renderApp` integration update:
+  - removed local `bindTooltips/positionTooltip` implementations
+  - `renderGame(...)` continues to call `bindTooltips(root)` (same behavior)
+- Verified locally:
+  - `node --check src/ui/tooltipBinder.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-events-extract-v70
+- Based on `ui-tooltip-binder-extract-v69`.
+- Goal: keep `renderApp.js` event binding thin by extracting non-war domain actions into dedicated handler modules.
+- Files touched:
+  - `src/ui/economyEvents.js` (new)
+  - `src/ui/scriptureEvents.js` (new)
+  - `src/ui/tradeEvents.js` (new)
+  - `src/ui/disciplesEvents.js` (new)
+  - `src/ui/beastsEvents.js` (new)
+  - `src/ui/renderApp.js`
+- New module contracts:
+  - `handleEconomyUiAction({ action, element, app })`
+    - handles: `recruit-workers`, `build-dormitory`, `upgrade-dormitory`, `upgrade-building`, `assign-worker`, `assign-scripture-worker`
+  - `handleScriptureUiAction({ action, element, app })`
+    - handles: `research-node`
+  - `handleTradeUiAction({ action, element, app })`
+    - handles: `trade-route`
+  - `handleDisciplesUiAction({ action, element, root, app, uiState, state, helpers })`
+    - handles: `station-disciple`, `set-leader`, `toggle-support`, `apply-team`, `promote-elder`
+  - `handleBeastsUiAction({ action, element, app })`
+    - handles: `toggle-beast`
+- `renderApp` integration update:
+  - `bindEvents(...)` now delegates to the above handlers (and returns early when handled)
+  - removed the corresponding `case` blocks from the main switch
+- Verified locally:
+  - `node --check src/ui/economyEvents.js`
+  - `node --check src/ui/scriptureEvents.js`
+  - `node --check src/ui/tradeEvents.js`
+  - `node --check src/ui/disciplesEvents.js`
+  - `node --check src/ui/beastsEvents.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-core-events-extract-v71
+- Based on `ui-events-extract-v70`.
+- Goal: extract the remaining global actions (tab switching, save/reset) out of `renderApp.js` to keep `bindEvents(...)` purely as a dispatcher.
+- Files touched:
+  - `src/ui/coreEvents.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `handleCoreUiAction({ action, element, app })`
+    - handles: `switch-tab`, `save-game`, `reset-game`
+- `renderApp` integration update:
+  - `bindEvents(...)` now calls `handleCoreUiAction(...)` and returns early when handled
+  - removed the corresponding `case` blocks from the fallback switch
+- Verified locally:
+  - `node --check src/ui/coreEvents.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-app-shell-view-extract-v72
+- Based on `ui-core-events-extract-v71`.
+- Goal: extract the app shell (top navigation + save/reset + tooltip container) out of `renderApp.js`.
+- Files touched:
+  - `src/ui/appShellView.js` (new)
+  - `src/ui/renderApp.js`
+- New view module contract:
+  - `renderAppShell({ activeTab, tabContent, tabs })`
+    - `tabs`: array of `[tabKey, label]` tuples
+    - outputs the same button `data-action` contract as before (`switch-tab`, `save-game`, `reset-game`)
+    - keeps tooltip container `<div class="tooltip" data-role="tooltip">` unchanged
+- `renderApp` integration update:
+  - `renderGame(...)` now delegates shell markup building to `renderAppShell(...)`
+- Verified locally:
+  - `node --check src/ui/appShellView.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-tab-router-extract-v73
+- Based on `ui-app-shell-view-extract-v72`.
+- Goal: extract tab routing logic out of `renderApp.js` so the shell + router can evolve independently of panel implementations.
+- Files touched:
+  - `src/ui/tabRouter.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `getTabContent({ activeTab, state, registries, uiState, panels })`
+    - routes `activeTab` to the correct renderer in `panels`
+    - keeps panels injectable to avoid tight coupling / circular imports
+- `renderApp` integration update:
+  - removed local `getTabContent(...)` function
+  - `renderGame(...)` now calls the router and passes the current panel renderers
+- Verified locally:
+  - `node --check src/ui/tabRouter.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-economy-panel-extract-v74
+- Based on `ui-tab-router-extract-v73`.
+- Goal: start moving panel renderers out of `renderApp.js` (hierarchical modular UI). First extraction targets the Economy tab.
+- Files touched:
+  - `src/ui/panels/economyPanel.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `economyPanel(state, registries, deps)`
+    - depends on injected UI helpers:
+      - `tooltipAttr`, `formatNumber`, `formatCostSummary`
+      - `formatResourceRate`, `formatResourceAmount`, `getResourceLabel`
+- `renderApp` integration update:
+  - removed inline Economy panel implementation from `renderApp.js`
+  - `renderGame(...)` now passes a wrapped renderer into the tab router:
+    - `economy: (state, registries, uiState) => economyPanel(state, registries, deps)`
+- Verified locally:
+  - `node --check src/ui/panels/economyPanel.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-scripture-panel-extract-v75
+- Based on `ui-economy-panel-extract-v74`.
+- Goal: continue moving tab panels out of `renderApp.js`; extract the Scripture (藏经阁) panel into `src/ui/panels`.
+- Files touched:
+  - `src/ui/panels/scripturePanel.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `scripturePanel(state, registries, deps)`
+    - depends on injected UI helpers:
+      - `tooltipAttr`, `formatNumber`, `formatCostSummary`
+    - retains existing action ids:
+      - `assign-scripture-worker`, `research-node`
+- `renderApp` integration update:
+  - removed inline `scripturePanel(...)` implementation from `renderApp.js`
+  - `renderGame(...)` now passes a wrapped renderer into the tab router:
+    - `scripture: (state, registries, uiState) => scripturePanel(state, registries, deps)`
+- Verified locally:
+  - `node --check src/ui/panels/scripturePanel.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-logs-panel-extract-v76
+- Based on `ui-scripture-panel-extract-v75`.
+- Goal: continue extracting panels out of `renderApp.js`; extract the Logs tab into `src/ui/panels`.
+- Files touched:
+  - `src/ui/panels/logsPanel.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `logsPanel(state, registries, deps)`
+    - depends on injected UI helper: `formatTime`
+- `renderApp` integration update:
+  - removed inline `logsPanel(...)` implementation
+  - `renderGame(...)` now passes a wrapped logs renderer into the tab router
+- Verified locally:
+  - `node --check src/ui/panels/logsPanel.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-beasts-panel-extract-v77
+- Based on `ui-logs-panel-extract-v76`.
+- Goal: continue extracting panels out of `renderApp.js`; extract the Beasts tab into `src/ui/panels`.
+- Files touched:
+  - `src/ui/panels/beastsPanel.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `beastsPanel(state, registries, deps)`
+    - depends on injected UI helper: `tooltipAttr`
+    - retains existing action ids: `toggle-beast`
+- `renderApp` integration update:
+  - removed inline `beastsPanel(...)` implementation
+  - `renderGame(...)` now passes a wrapped beasts renderer into the tab router
+- Verified locally:
+  - `node --check src/ui/panels/beastsPanel.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-disciples-panel-extract-v78
+- Based on `ui-beasts-panel-extract-v77`.
+- Goal: continue extracting panels out of `renderApp.js`; extract the Disciples tab into `src/ui/panels`.
+- Files touched:
+  - `src/ui/panels/disciplesPanel.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `disciplesPanel(state, registries, deps)`
+    - depends on injected UI helpers: `tooltipAttr`, `formatTime`
+    - consumes injected `deps.uiState` for pending expedition team selection
+    - retains existing action ids:
+      - `station-disciple`, `set-leader`, `toggle-support`, `apply-team`, `promote-elder`
+- `renderApp` integration update:
+  - removed inline `disciplesPanel(...)` implementation
+  - `renderGame(...)` now passes a wrapped disciples renderer into the tab router
+- Verified locally:
+  - `node --check src/ui/panels/disciplesPanel.js`
+  - `node --check src/ui/renderApp.js`
+
+## disciples-training-feature-v79
+- Based on `ui-disciples-panel-extract-v78`.
+- Goal: add a basic disciple cultivation/training loop (level up -> stronger stationed/expedition modifiers) with clear extension points.
+- Files touched:
+  - `src/data/discipleTraining.js` (new)
+  - `src/core/store.js`
+  - `src/systems/shared/effectResolver.js`
+  - `src/systems/disciplesBeastsSystem.js`
+  - `src/ui/disciplesEvents.js`
+  - `src/ui/panels/disciplesPanel.js`
+  - `src/ui/renderApp.js`
+- Data/balance interface:
+  - `DISCIPLE_MAX_LEVEL`
+  - `getDiscipleEffectMultiplier(level)` (default: +12% per level)
+  - `getDiscipleTrainingCost(currentLevel)` (resource cost for next level; growth-based)
+  - `canTrainDisciple(level)`
+- State schema:
+  - added `state.disciples.levels` (map: discipleId -> level)
+  - `normalizeState(...)` merges `savedState.disciples.levels` for backwards-compatible saves
+- System changes:
+  - `disciplesBeastsSystem`:
+    - ensures owned disciples default to `Lv.1`
+    - new action: `action:disciples/train` -> `trainDisciple(...)`
+      - spends `dao/spiritCrystal/lingStone` per level and raises `state.disciples.levels[discipleId]`
+  - `effectResolver`:
+    - scales disciple stationed/expedition effect values by `getDiscipleEffectMultiplier(level)`
+- UI changes:
+  - Disciples tab adds cultivation buttons:
+    - `train-disciple` (x1 / x5)
+    - shows `Lv.X`, `xMultiplier`, and next cost in tooltips
+  - `disciplesEvents` emits `action:disciples/train`
+- Verified locally:
+  - `node --check src/data/discipleTraining.js`
+  - `node --check src/systems/shared/effectResolver.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/ui/panels/disciplesPanel.js`
+  - `node --check src/ui/disciplesEvents.js`
+  - `node --check src/core/store.js`
+  - `node --check src/ui/renderApp.js`
+
+## blank-screen-guard-v80
+- Based on `disciples-training-feature-v79`.
+- Goal: prevent "blank screen" by surfacing runtime errors in-page and guarding against missing root mount element.
+- Files touched:
+  - `src/main.js`
+  - `src/ui/renderApp.js`
+- Changes:
+  - `src/main.js` wraps initial render + store subscription render in `safeRender()` (try/catch)
+  - registers `window.error` + `window.unhandledrejection` handlers to show a readable error panel instead of a blank page
+  - `src/ui/renderApp.js` now early-returns when `root` is falsy
+- Verified locally:
+  - `node --check src/main.js`
+  - `node --check src/ui/renderApp.js`
+
+## tooltip-attr-restore-v81
+- Based on `blank-screen-guard-v80`.
+- Goal: fix blank-screen runtime error by restoring the missing `tooltipAttr` helper used across panels.
+- Files touched:
+  - `src/ui/tooltipAttr.js` (new)
+  - `src/ui/renderApp.js`
+- New helper interface:
+  - `tooltipAttr(lines)` -> `data-tooltip="..."` attribute string (auto-escapes HTML + newlines)
+  - `escapeHtmlAttribute(value)` exported for future reuse
+- Fix:
+  - `renderApp.js` now imports `tooltipAttr` so panels and resource bar can attach tooltips safely.
+- Verified locally:
+  - `node --check src/ui/tooltipAttr.js`
+  - `node --check src/ui/renderApp.js`
+
+## renderapp-missing-helpers-fix-v82
+- Based on `tooltip-attr-restore-v81`.
+- Goal: fix runtime `ReferenceError` issues after modularization by restoring shared formatter helpers still used by panels/views.
+- Files touched:
+  - `src/ui/renderApp.js`
+- Restored helpers:
+  - `getResourceLabel(resourceId)` (uses `RESOURCE_LABELS`)
+  - `formatResourceAmount(resourceId, amount, joiner?)`
+  - `formatCostSummary(costMap)`
+  - `formatResourceRate(resourceId, amountPerUnit, unit?)`
+  - `rewardLine(reward)`
+  - `getEncounterTypeLabel(type)`
+  - `getTagLabel(tag)`
+- Verified locally:
+  - `node --check src/ui/renderApp.js`
+
+## war-auto-copy-fix-v83
+- Based on `renderapp-missing-helpers-fix-v82`.
+- Goal: fix garbled "????" strings in auto-battle strategy/speed UI (Strategy/Speed buttons + preference card copy).
+- Files touched:
+  - `src/ui/warBattleUi.js`
+  - `src/ui/warAutoPreferencesView.js`
+- Changes:
+  - replaced strategy labels/descriptions with UTF-8 safe `\u` escaped Chinese:
+    - `技能优先` / `保留技能` / `优先后排` / `收割残血`
+  - replaced speed labels/descriptions:
+    - `慢速` / `标准` / `极速`
+  - fixed auto intent label copy in `getAutoBattleIntent(...)`
+  - fixed preference card title/tooltip copy (`自动战斗设置` etc.)
+- Verified locally:
+  - `node --check src/ui/warBattleUi.js`
+  - `node --check src/ui/warAutoPreferencesView.js`
+
+## war-auto-ui-questionmark-cleanup-v84
+- Based on `war-auto-copy-fix-v83`.
+- Goal: remove remaining garbled "????" strings in the auto-battle (A) area by fixing live battle view + related tooltips.
+- Files touched:
+  - `src/ui/warBattleView.js`
+  - `src/ui/warBattlePanel.js`
+  - `src/ui/warBattleUi.js`
+- Changes:
+  - replaced all hardcoded "????" UI copy in the live battle panel with UTF-8 safe `\u` escaped Chinese
+  - fixed skill tooltip lines and battle preview/target tooltip labels
+  - fixed auto-target tooltip fallback label
+- Verified locally:
+  - `node --check src/ui/warBattleView.js`
+  - `node --check src/ui/warBattlePanel.js`
+  - `node --check src/ui/warBattleUi.js`
+
+## cache-bust-index-v85
+- Based on `war-auto-ui-questionmark-cleanup-v84`.
+- Goal: ensure browsers stop serving stale JS/CSS leading to persistent "????" after copy fixes.
+- Files touched:
+  - `index.html`
+- Changes:
+  - added no-cache meta tags for easier local dev iteration
+  - appended cache-busting query string to `src/main.js` module script
+  - rewrote the page `<title>` as UTF-8 text (fixes garbled title)
+
+## war-battle-controls-click-fix-v86
+- Based on `cache-bust-index-v85`.
+- Goal: fix "战斗按钮没有反应" by ensuring manual commands can always be issued (even when auto mode was enabled) and by removing over-strict UI disabling.
+- Files touched:
+  - `src/ui/warEvents.js`
+  - `src/ui/warBattleView.js`
+- Changes:
+  - `warEvents` now calls `clearWarAutoTimer(uiState)` and disables auto mode before handling:
+    - `battle-attack`, `battle-skill`, `battle-retreat`
+  - live battle buttons:
+    - 普攻不再因为“未选择目标”而禁用（系统会自动选择可用目标）
+    - 技能仅根据 `pendingAction.skill.ready` 禁用
+
+## war-recruitment-synergy-module-v87
+- Based on `war-battle-controls-click-fix-v86`.
+- Goal: add a recruitment module (UI layer on existing `trainUnit` logic) and add formation synergy bonuses based on recruited unit composition, without breaking the existing war logic chain.
+- Files touched:
+  - `src/data/formationSynergies.js` (new)
+  - `src/systems/warSystem.js`
+  - `src/ui/warRecruitView.js` (new)
+  - `src/ui/warPageView.js`
+- New extensibility interfaces:
+  - `src/data/formationSynergies.js`
+    - `FORMATION_SYNERGIES` (data-driven synergy definitions)
+    - `resolveFormationSynergies(unitRoster)` -> `{ active, modifiers }`
+      - `unitRoster` item shape: `{ id, tags, row, count }`
+      - `modifiers` shape: `{ attack, defense, sustain }`
+  - `src/ui/warRecruitView.js`
+    - `renderWarRecruitmentSection({ units, battleLocked, tooltipAttr, formatCostSummary, getTagLabel })`
+    - `renderWarSynergyCard(synergies, tooltipAttr)`
+- War system integration:
+  - `calculateArmyPower(...)` and `buildPlayerTeam(...)` now apply synergy modifiers additively alongside existing formation modifiers.
+  - `getWarSnapshot(...)` exposes `war.army.synergies` for UI.
+
+## war-start-battle-feedback-fix-v88
+- Based on `war-recruitment-synergy-module-v87`.
+- Goal: make “发起战斗按钮无效”可见且可定位：失败时给出明确提示，并修复部分战争日志乱码。
+- Files touched:
+  - `src/ui/warEvents.js`
+  - `src/systems/warSystem.js`
+  - `src/main.js`
+  - `index.html`
+- Changes:
+  - `warEvents` 在 `challenge-stage` 后同步检查 `state.war.currentBattle` 是否创建：
+    - 未创建 -> 通过 `warBattleControlFeedback` 提示“未解锁/无可用兵种”等原因
+  - `warSystem` 替换 `startBattle / challengeStage / commandBattle / setBattleAuto*` 的关键 “????” 日志为中文文案
+  - `main.js` 重写为 UTF-8 安全文案（错误面板不再乱码）
+  - `index.html` 更新 cache bust 版本号
+
+## war-skill-tooltip-garbled-fix-v89
+- Based on `war-start-battle-feedback-fix-v88`.
+- Goal: fix “战斗中的技能信息乱码” by replacing garbled preview strings with Chinese and localizing skill type labels.
+- Files touched:
+  - `src/systems/warSystem.js`
+  - `src/ui/warBattlePanel.js`
+  - `index.html`
+- Changes:
+  - Battle preview builders now output readable Chinese:
+    - `buildDamagePreview(...)`, `buildAttackPreview(...)`, `buildSkillPreview(...)`
+  - Skill tooltip uses localized type label via `SKILL_TYPE_LABELS` mapping.
+  - `index.html` cache bust version bump.
+
+## war-live-battle-preview-refresh-v90
+- Based on `war-skill-tooltip-garbled-fix-v89`.
+- Goal: ensure running battles created before copy fixes get refreshed preview text (避免因为存档/刷新导致仍显示旧的“???”预估文案).
+- Files touched:
+  - `src/systems/warSystem.js`
+  - `index.html`
+- Changes:
+  - `getWarSnapshot(...)` now returns `activeBattle` as a snapshot with `pendingAction` rebuilt from current turn:
+    - uses `buildLiveBattleSnapshot(battle)` -> `{ ...battle, pendingAction: buildPendingBattleAction(...) }`
+    - does not mutate saved state, only affects UI render layer
+  - `index.html` cache bust version bump.
+
+## module-cache-bust-deep-v91
+- Based on `war-live-battle-preview-refresh-v90`.
+- Goal: fix “普攻预估:????35 / 技能预估:????” persisting after code changes by forcing browser to re-fetch key ES modules (not just `main.js`).
+- Files touched:
+  - `src/main.js`
+  - `src/app.js`
+  - `src/ui/renderApp.js`
+  - `index.html`
+- Changes:
+  - Adds query-string cache bust to module imports:
+    - `src/main.js` imports `app.js?v=20260310-6` and `renderApp.js?v=20260310-6`
+    - `src/app.js` imports `warSystem.js?v=20260310-6`
+    - `src/ui/renderApp.js` imports `warSystem.js?v=20260310-6`
+  - Bumps `index.html` `main.js` version to match.
+
+## war-log-outcome-label-fix-v92
+- Based on `module-cache-bust-deep-v91`.
+- Goal: fix battle log garbling like “?1??” and English result text like “结果 hit”.
+- Files touched:
+  - `src/systems/warSystem.js`
+  - `src/ui/warActionUi.js`
+  - `src/main.js`
+  - `src/app.js`
+  - `src/ui/renderApp.js`
+  - `index.html`
+- Changes:
+  - `initializeCurrentRound(...)` round log now uses `\u7b2c X \u56de\u5408` instead of `? X ??`.
+  - Damage action log now uses `formatOutcomeLabel(...)` so it prints `命中/暴击/格挡...` instead of `hit/block/...`.
+  - `warActionUi` removes garbled separator “路”，replaces with `\u00b7`.
+  - Bumps module cache bust to `v=20260310-7` for `main/app/renderApp/warSystem/warActionUi`.
+
+## war-live-log-sanitize-v93
+- Based on `war-log-outcome-label-fix-v92`.
+- Goal: sanitize already-generated battle logs that still contain garbled text like “? 1 ??” and English results like “结果 hit”.
+- Files touched:
+  - `src/systems/warSystem.js`
+  - `src/main.js`
+  - `src/app.js`
+  - `src/ui/renderApp.js`
+  - `index.html`
+- Changes:
+  - `sanitizeBattleLogLine(line)` in `warSystem` normalizes:
+    - `? 1 ??` -> `第 1 回合`
+    - `结果 hit/miss/block/crit/crit-block` -> `结果 命中/闪避/格挡/暴击/暴击被挡`
+  - `buildLiveBattleSnapshot(...)` returns `currentRound.logs` after sanitization (no state mutation).
+  - Cache bust bumps to `v=20260310-8`.
+
+## questionmark-garbled-solution-v94
+- Based on `war-live-log-sanitize-v93`.
+- Goal:彻底解决页面仍出现“??/???”：在显示层统一净化历史文本，同时继续通过版本化模块 URL 规避缓存导致的旧文案复用。
+- Files touched:
+  - `src/ui/textSanitizer.js` (new)
+  - `src/ui/warBattlePanel.js`
+  - `src/ui/panels/logsPanel.js`
+  - `src/ui/renderApp.js`
+  - `src/systems/warSystem.js`
+  - `src/main.js`
+  - `src/app.js`
+  - `index.html`
+- Changes:
+  - Adds `sanitizeUiText(text)`:
+    - `? 1 ??` -> `第 1 回合`
+    - `结果 hit/miss/block/crit/crit-block` -> 中文结果
+    - `???...` -> `（文本乱码）`
+  - Live battle panel now sanitizes `recentLogs` before rendering.
+  - Logs panel now sanitizes `log.message` via injected `sanitizeUiText`.
+  - Cache bust bump to `v=20260310-9`, and version critical imports:
+    - `renderApp` imports `warBattlePanel.js?v=...`, `logsPanel.js?v=...`, `warSystem.js?v=...`, `warActionUi.js?v=...`
+
+## barracks-tab-recruit-config-v95
+- Based on `questionmark-garbled-solution-v94`.
+- Goal: move unit recruitment + formation/row configuration into a new Barracks tab, and remove unit configuration from the War tab.
+- Files touched:
+  - `src/ui/panels/barracksPanel.js` (new)
+  - `src/ui/tabRouter.js`
+  - `src/ui/renderApp.js`
+  - `src/ui/warPageView.js`
+  - `src/data/units.js`
+  - `src/main.js`, `src/app.js`, `index.html` (cache bust)
+- UI changes:
+  - New tab `barracks` (\u5175\u8425) shows:
+    - formation selection, auto-arrange, row assignment
+    - recruitment (reuses existing `action:war/trainUnit` without changing war logic)
+    - synergy summary card
+  - War tab no longer renders `renderWarPreparationSection` (configuration removed).
+- Data changes:
+  - Added 3 early-game recruitable units (unlock `bingdao-chushi`):
+    - `militia-spearman` (\u67aa\u5175)
+    - `field-medic` (\u519b\u533b)
+    - `stone-thrower` (\u6295\u77f3\u624b)
+- Cache bust:
+  - Bumped module versions to `v=20260310-11`.
+
+## ui-overview-war-panel-extract-v96
+- Based on `barracks-tab-recruit-config-v95`.
+- Goal: continue shrinking `src/ui/renderApp.js` by extracting the remaining Overview / War panel renderers into `src/ui/panels`, and make Barracks self-contained.
+- Files touched:
+  - `src/ui/panels/overviewPanel.js` (new)
+  - `src/ui/panels/warPanel.js` (new)
+  - `src/ui/panels/barracksPanel.js`
+  - `src/ui/renderApp.js`
+- New/updated module contracts:
+  - `overviewPanel(state, registries, deps)`
+    - renders the overview tab and its resource bar
+    - depends on injected helpers:
+      - `tooltipAttr`, `formatNumber`, `getResourceLabel`, `resourceDisplayOrder`
+  - `warPanel(state, registries, deps)`
+    - owns war page composition:
+      - stage progression
+      - auto-battle preference card
+      - active battle panel
+      - replay section
+      - report history
+    - depends on injected helpers:
+      - `tooltipAttr`, `formatNumber`, `formatCostSummary`
+      - `getEncounterTypeLabel`, `getTagLabel`
+      - `getTransientUiFeedback`
+      - `uiState`
+  - `barracksPanel(...)`
+    - now imports `getWarSnapshot(...)` internally instead of requiring `renderApp.js` injection
+- `renderApp` integration update:
+  - removed inline `overviewPanel(...)`, `warPanel(...)`, and resource-bar rendering from `renderApp.js`
+  - `renderGame(...)` now wires wrapped panel renderers into `tabRouter`
+  - removed stale War page assembly imports from `renderApp.js`
+- UI behavior update:
+  - war reward summaries now render with explicit labels like `基础奖励：...` / `战利品合计：...` instead of unlabeled plain strings
+- Verified locally:
+  - `node --check src/ui/panels/overviewPanel.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/ui/panels/barracksPanel.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-panel-renderer-registry-v97
+- Based on `ui-overview-war-panel-extract-v96`.
+- Goal: remove per-tab renderer wiring from `renderApp.js` and centralize panel wrapper creation in one assembly module.
+- Files touched:
+  - `src/ui/panelRenderers.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `APP_TABS`
+    - frozen tab list for the app shell navigation
+  - `createPanelRenderers({ uiState, helpers })`
+    - returns the `panels` object consumed by `getTabContent(...)`
+    - wraps all tab panels with their injected formatting / tooltip / transient-feedback helpers
+    - keeps `sanitizeUiText` localized to logs-panel assembly instead of leaking it through `renderApp.js`
+- `renderApp` integration update:
+  - removed inline `overview/economy/scripture/barracks/war/disciples/beasts/logs` renderer wrapper definitions
+  - `renderGame(...)` now builds `panels` through `createPanelRenderers(...)`
+  - app shell tab config now reuses `APP_TABS` instead of duplicating the tuple list inline
+- Result:
+  - `src/ui/renderApp.js` shrank from 211 lines to 147 lines
+  - top-level renderer is now focused on:
+    - shared formatter definitions
+    - event binding
+    - root render orchestration
+    - replay/auto-battle scheduling
+- Verified locally:
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-shared-formatters-extract-v98
+- Based on `ui-panel-renderer-registry-v97`.
+- Goal: remove shared number/time/resource/tag formatting concerns from `renderApp.js` so UI composition no longer owns display dictionaries.
+- Files touched:
+  - `src/ui/uiFormatters.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - exports:
+    - `RESOURCE_DISPLAY_ORDER`
+    - `formatNumber(value)`
+    - `formatTime(timestamp)`
+    - `getResourceLabel(resourceId)`
+    - `formatResourceAmount(resourceId, amount, joiner?)`
+    - `formatCostSummary(costMap)`
+    - `formatResourceRate(resourceId, amountPerUnit, unit?)`
+    - `getEncounterTypeLabel(type)`
+    - `getTagLabel(tag)`
+- `renderApp` integration update:
+  - removed inline resource/encounter/tag label maps
+  - removed inline formatter helpers and now imports them from `uiFormatters.js`
+- Result:
+  - keeps shared UI copy/formatting logic in one module for future panel/tooltips reuse
+  - `src/ui/renderApp.js` shrank from 147 lines to 94 lines
+- Verified locally:
+  - `node --check src/ui/uiFormatters.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-event-binder-extract-v99
+- Based on `ui-shared-formatters-extract-v98`.
+- Goal: make `renderApp.js` a pure top-level coordinator by moving click-action dispatch into a dedicated binder module.
+- Files touched:
+  - `src/ui/eventBinder.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `bindAppEvents({ root, app, uiState, helpers })`
+    - handles delegated binding for all `[data-action]` buttons
+    - owns dispatch order across:
+      - war
+      - core
+      - economy
+      - scripture
+      - trade
+      - disciples
+      - beasts
+    - expects injected helpers:
+      - `renderGame`
+      - `setTransientUiFeedback`
+      - `syncReplayAfterWarAction`
+- `renderApp` integration update:
+  - removed local `bindEvents(...)`
+  - `renderGame(...)` now delegates to `bindAppEvents(...)`
+- Result:
+  - `src/ui/renderApp.js` shrank further from 94 lines to 67 lines
+  - top-level render module now mainly does:
+    - state lookup
+    - tab content assembly
+    - shell rendering
+    - tooltip/replay/auto-battle scheduling
+- Verified locally:
+  - `node --check src/ui/uiFormatters.js`
+  - `node --check src/ui/eventBinder.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-tab-config-driven-router-v100
+- Based on `ui-event-binder-extract-v99`.
+- Goal: remove tab routing hardcoded `switch` logic and centralize tab metadata/defaults in a single config module.
+- Files touched:
+  - `src/ui/tabConfig.js` (new)
+  - `src/ui/tabRouter.js`
+  - `src/ui/panelRenderers.js`
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `APP_TABS`
+    - shared navigation tab tuple list `[tabKey, label][]`
+  - `DEFAULT_TAB`
+    - current shell/router fallback tab (`overview`)
+  - `TAB_KEYS`
+    - derived tab key list used for route validation
+- `tabRouter` update:
+  - removed the `switch (activeTab)` routing tree
+  - now resolves `activeTab` via `TAB_KEYS.includes(activeTab) ? activeTab : DEFAULT_TAB`
+  - then dispatches with `renderers[resolvedTab]?.(...)`
+- Integration updates:
+  - `panelRenderers.js` now imports `APP_TABS` from `tabConfig.js` instead of owning a second copy
+  - `renderApp.js` now imports `DEFAULT_TAB` instead of hardcoding `'overview'`
+- Result:
+  - tab labels, valid tab ids, and default-route fallback now have a single source of truth
+  - future tab additions only need config + renderer registration, without editing router control flow
+- Verified locally:
+  - `node --check src/ui/tabConfig.js`
+  - `node --check src/ui/tabRouter.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-render-runtime-extract-v101
+- Based on `ui-tab-config-driven-router-v100`.
+- Goal: move post-render hydration out of `renderApp.js` so the top-level renderer no longer owns event/tooltip/scheduler orchestration details.
+- Files touched:
+  - `src/ui/renderRuntime.js` (new)
+  - `src/ui/renderApp.js`
+- New module contract:
+  - `hydrateRenderedUi({ root, app, uiState, helpers })`
+    - performs post-render runtime wiring:
+      - binds app actions via `bindAppEvents(...)`
+      - binds tooltips
+      - schedules war replay autoplay
+      - schedules war auto-battle
+    - expects injected helpers:
+      - `renderGame`
+      - `setTransientUiFeedback`
+- `renderApp` integration update:
+  - removed direct imports of tooltip binder / war schedulers / event binder
+  - after `root.innerHTML = renderAppShell(...)`, now delegates all runtime setup to `hydrateRenderedUi(...)`
+- Result:
+  - `src/ui/renderApp.js` shrank from 67 lines to 59 lines
+  - top-level renderer is now effectively:
+    - state lookup
+    - panel assembly
+    - shell render
+    - runtime hydration handoff
+- Verified locally:
+  - `node --check src/ui/renderRuntime.js`
+  - `node --check src/ui/renderApp.js`
+
+## ui-smoke-harness-v102
+- Based on `ui-render-runtime-extract-v101`.
+- Goal: add a browser-native smoke harness page to exercise the refactored UI shell and key game flows without introducing external test dependencies.
+- Files touched:
+  - `smoke.html` (new)
+  - `src/dev/uiSmoke.js` (new)
+- New harness coverage:
+  - renders default overview
+  - switches through all registered tabs via actual `switch-tab` buttons
+  - in Barracks:
+    - recruits units via `train-unit`
+    - runs `auto-arrange`
+  - in War:
+    - starts a stage battle via `challenge-stage`
+    - issues repeated `battle-attack` commands until a report is generated
+    - verifies replay/history sections render
+  - in Logs:
+    - injects a smoke-only log entry and verifies rendering
+- Harness design:
+  - uses real browser DOM and the production modules:
+    - `createGameApp()`
+    - `renderGame(...)`
+  - avoids calling `app.start()`, so it does not enable the engine tick or autosave loop
+  - clears replay/auto-battle timers inside the harness to keep runs deterministic
+  - writes PASS/FAIL cards into the page for manual inspection
+- Verified locally:
+  - `node --check src/dev/uiSmoke.js`
+- Validation gap:
+  - attempted headless browser execution, but the current local browser/server setup did not return usable DOM output; harness page was added and syntax-checked, but full automated browser execution was not confirmed in this session
+
+## ui-smoke-runner-v103
+- Based on `ui-smoke-harness-v102`.
+- Goal: make the smoke harness runnable as a single local command and close the loop with a real browser-based pass/fail signal.
+- Files touched:
+  - `tools/run_ui_smoke.py` (new)
+  - `smoke.html`
+  - `src/dev/uiSmoke.js`
+- New runner contract:
+  - command:
+    - `python tools/run_ui_smoke.py`
+  - behavior:
+    - starts a temporary local HTTP server for the `web/` directory
+    - launches a detected local browser in headless mode
+    - opens `smoke.html?reportUrl=/__smoke_report`
+    - waits for the harness to POST JSON results back
+    - exits `0` on pass, `1` on fail
+- Harness hardening updates:
+  - `smoke.html` now installs bootstrap-level `error` / `unhandledrejection` reporters before the module script loads
+  - `uiSmoke.js` now:
+    - POSTs structured results back to the runner
+    - includes a watchdog timeout report
+    - subscribes to store updates so `switch-tab` and other state-only actions trigger rerender like the real app entry
+    - researches the prerequisite scripture chain (`wanwu-shengfa -> fansu-shangdao -> bingdao-chushi`) before barracks/war assertions
+- Verified locally:
+  - `node --check src/dev/uiSmoke.js`
+  - `python -m py_compile tools/run_ui_smoke.py`
+  - browser smoke run passed:
+    - `python tools/run_ui_smoke.py`
+    - result:
+      - `Render Default Overview` PASS
+      - `Navigate All Tabs` PASS
+      - `Barracks Recruit And Arrange` PASS
+      - `War Battle Loop` PASS
+      - `Logs Tab Smoke Entry` PASS
+
+## ui-smoke-coverage-expand-v104
+- Based on `ui-smoke-runner-v103`.
+- Goal: expand browser smoke coverage beyond shell/war basics so economy-side systems and character systems are guarded by the same regression runner.
+- Files touched:
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- Coverage additions:
+  - `Trade Exchange Flow`
+    - researches `wanwu-shengfa -> fansu-shangdao`
+    - validates enabled `trade-route` actions mutate `state.trade.totalExchanged`
+  - `Disciples Train And Team Flow`
+    - ensures `bingdao-chushi` is unlocked
+    - seeds the minimum `spiritCrystal / lingStone / dao` resources needed for disciple training
+    - validates:
+      - `train-disciple` raises disciple level
+      - `set-leader` + `apply-team` updates `state.disciples.expeditionTeam`
+  - `Beasts Unlock And Toggle`
+    - seeds `beastShard`
+    - researches through `wanling-ganying`
+    - validates `toggle-beast` changes activation state
+- Harness corrections learned during validation:
+  - added store subscription earlier so UI rerenders after state-only actions like `switch-tab`
+  - beast assertion updated to match actual game behavior:
+    - `beastUnlock` auto-activates the first unlocked beast in `scriptureSystem`
+    - smoke now asserts "activation state toggled" rather than assuming "inactive -> active"
+- Verified locally:
+  - `node --check src/dev/uiSmoke.js`
+  - `python tools/run_ui_smoke.py`
+  - result:
+    - `Render Default Overview` PASS
+    - `Navigate All Tabs` PASS
+    - `Barracks Recruit And Arrange` PASS
+    - `Trade Exchange Flow` PASS
+    - `Disciples Train And Team Flow` PASS
+    - `War Battle Loop` PASS
+    - `Beasts Unlock And Toggle` PASS
+    - `Logs Tab Smoke Entry` PASS
+
+## ui-smoke-war-replay-controls-v105
+- Based on `ui-smoke-coverage-expand-v104`.
+- Goal: protect war replay controls from UI-state regressions by asserting the generated battle report can be stepped, retimed, jumped, and reset.
+- Files touched:
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- Coverage addition:
+  - `War Replay Controls`
+    - after the smoke-generated battle report exists:
+      - forces selection of the newest report
+      - sets replay speed via `war-replay-speed`
+      - advances one step via `war-replay-next`
+      - jumps to the last round via `war-replay-jump`
+      - resets playback via `war-replay-reset`
+    - validates `uiState.warReplay` mutations directly:
+      - `speedMs`
+      - `roundIndex`
+      - `actionIndex`
+- Verified locally:
+  - `node --check src/dev/uiSmoke.js`
+  - `python tools/run_ui_smoke.py`
+  - result:
+    - `Render Default Overview` PASS
+    - `Navigate All Tabs` PASS
+    - `Barracks Recruit And Arrange` PASS
+    - `Trade Exchange Flow` PASS
+    - `Disciples Train And Team Flow` PASS
+    - `War Battle Loop` PASS
+    - `War Replay Controls` PASS
+    - `Beasts Unlock And Toggle` PASS
+    - `Logs Tab Smoke Entry` PASS
+
+## ui-smoke-autobattle-wrapper-v106
+- Based on `ui-smoke-war-replay-controls-v105`.
+- Goal: extend smoke coverage to auto-battle preference/control flows and add a friendlier local command wrapper for repeated regression runs.
+- Files touched:
+  - `src/dev/uiSmoke.js`
+  - `run_ui_smoke.ps1` (new)
+  - `docs/module-summary-latest.md`
+- Coverage addition:
+  - `War Auto Preferences And Controls`
+    - on the War page before battle:
+      - sets default auto-battle strategy to `focus-lowest-hp`
+      - sets default auto-battle speed to `fast`
+      - verifies `state.war.autoPreferences`
+    - after starting a battle:
+      - verifies the battle inherits those defaults
+      - toggles live `battle-auto-toggle`
+      - switches strategy to `focus-backline`
+      - switches speed to `slow`
+      - verifies `state.war.currentBattle.autoMode/autoStrategy/autoSpeed`
+      - retreats and confirms the battle closes cleanly
+- New local runner wrapper:
+  - `powershell -ExecutionPolicy Bypass -File run_ui_smoke.ps1`
+  - wrapper behavior:
+    - resolves `python` or `py` from `PATH`
+    - forwards all remaining args to `tools/run_ui_smoke.py`
+- Verified locally:
+  - `node --check src/dev/uiSmoke.js`
+  - `powershell -ExecutionPolicy Bypass -File run_ui_smoke.ps1 --timeout 45`
+  - result:
+    - `Render Default Overview` PASS
+    - `Navigate All Tabs` PASS
+    - `Barracks Recruit And Arrange` PASS
+    - `Trade Exchange Flow` PASS
+    - `Disciples Train And Team Flow` PASS
+    - `War Auto Preferences And Controls` PASS
+    - `War Battle Loop` PASS
+    - `War Replay Controls` PASS
+    - `Beasts Unlock And Toggle` PASS
+    - `Logs Tab Smoke Entry` PASS
+
+## ui-smoke-save-cmd-wrapper-v107
+- Based on `ui-smoke-autobattle-wrapper-v106`.
+- Goal: cover the save button in browser smoke and add a plain `.cmd` entrypoint for Windows shells that do not want to invoke PowerShell manually.
+- Files touched:
+  - `src/dev/uiSmoke.js`
+  - `run_ui_smoke.cmd` (new)
+  - `docs/module-summary-latest.md`
+- Coverage addition:
+  - `Save Game Control`
+    - clicks `save-game`
+    - validates browser `localStorage[SAVE_KEY]` is written
+    - validates serialized payload contains `state.meta.lastSavedAt`
+    - validates the live store also syncs `meta.lastSavedAt`
+- Harness setup update:
+  - clears `localStorage[SAVE_KEY]` before creating the harness app to keep save assertions deterministic across runs
+- New local runner wrapper:
+  - `cmd /c run_ui_smoke.cmd --timeout 45`
+  - wrapper delegates to:
+    - `powershell -ExecutionPolicy Bypass -File run_ui_smoke.ps1`
+- Verified locally:
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 45`
+  - result:
+    - `Render Default Overview` PASS
+    - `Navigate All Tabs` PASS
+    - `Save Game Control` PASS
+    - `Barracks Recruit And Arrange` PASS
+    - `Trade Exchange Flow` PASS
+    - `Disciples Train And Team Flow` PASS
+    - `War Auto Preferences And Controls` PASS
+    - `War Battle Loop` PASS
+    - `War Replay Controls` PASS
+    - `Beasts Unlock And Toggle` PASS
+    - `Logs Tab Smoke Entry` PASS
+
+## ui-smoke-hydrate-cycle-v108
+- Based on `ui-smoke-save-cmd-wrapper-v107`.
+- Goal: extend the save-path regression from "can write save" to "can rehydrate a fresh app instance from that save".
+- Files touched:
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- Coverage addition:
+  - `Save And Hydrate Cycle`
+    - triggers `save-game`
+    - creates a second `createGameApp()` instance inside the harness
+    - calls `hydrate()`
+    - verifies the loaded state preserves key progress slices:
+      - `scripture.unlockedNodes` includes `bingdao-chushi`
+      - `war.battleReports.length >= 1`
+      - `disciples.expeditionTeam.leaderId` matches the source app
+      - `beasts.unlocked.length >= 1`
+      - `war.trainedUnits` matches the source app
+- Verified locally:
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 50`
+  - result:
+    - `Render Default Overview` PASS
+    - `Navigate All Tabs` PASS
+    - `Save Game Control` PASS
+    - `Barracks Recruit And Arrange` PASS
+    - `Trade Exchange Flow` PASS
+    - `Disciples Train And Team Flow` PASS
+    - `War Auto Preferences And Controls` PASS
+    - `War Battle Loop` PASS
+    - `War Replay Controls` PASS
+    - `Beasts Unlock And Toggle` PASS
+    - `Save And Hydrate Cycle` PASS
+    - `Logs Tab Smoke Entry` PASS
+
+## ui-smoke-reset-control-v109
+- Based on `ui-smoke-hydrate-cycle-v108`.
+- Goal: cover the `reset-game` button with a deterministic regression case without letting the smoke page actually navigate away mid-run.
+- Files touched:
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- Coverage addition:
+  - `Reset Game Control`
+    - creates a save first
+    - forces `window.confirm()` to return `true`
+    - clicks `reset-game`
+    - asserts `localStorage[SAVE_KEY]` is cleared
+- Environment note:
+  - the current headless browser environment does not expose a reliably hookable `window.location.reload()` path for assertion
+  - smoke therefore treats reload as observational only and keeps the deterministic contract focused on:
+    - confirmation path taken
+    - save cleared
+- Verified locally:
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 55`
+  - result:
+    - `Render Default Overview` PASS
+    - `Navigate All Tabs` PASS
+    - `Save Game Control` PASS
+    - `Barracks Recruit And Arrange` PASS
+    - `Trade Exchange Flow` PASS
+    - `Disciples Train And Team Flow` PASS
+    - `War Auto Preferences And Controls` PASS
+    - `War Battle Loop` PASS
+    - `War Replay Controls` PASS
+    - `Beasts Unlock And Toggle` PASS
+    - `Save And Hydrate Cycle` PASS
+    - `Reset Game Control` PASS
+    - `Logs Tab Smoke Entry` PASS
+
+## disciples-recruitment-module-v110
+- Based on `ui-smoke-reset-control-v109`.
+- Goal: turn disciples from "research grants ownership immediately" into a real recruitment loop: research unlocks the candidate, then the player spends resources to recruit them.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/discipleRecruitment.js` (new)
+  - `src/systems/scriptureSystem.js`
+  - `src/systems/disciplesBeastsSystem.js`
+  - `src/ui/disciplesEvents.js`
+  - `src/ui/panels/disciplesPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added `state.disciples.unlocked`
+  - `normalizeState(...)` now preserves backward compatibility by merging legacy `owned` disciples into `unlocked`
+- Recruitment data/system:
+  - added per-disciple recruit costs in `src/data/discipleRecruitment.js`
+  - `scriptureSystem` now applies `discipleUnlock` into `state.disciples.unlocked` instead of `owned`
+  - `disciplesBeastsSystem` now handles:
+    - `action:disciples/recruit`
+    - affordability checks
+    - ownership grant + default level initialization
+  - `getDisciplesSnapshot(...)` now exposes:
+    - `unlocked`
+    - `recruitCost`
+    - `canRecruit`
+- UI update:
+  - Disciples page now separates:
+    - `弟子招募`: unlocked-but-not-owned candidates with `招募` button
+    - `弟子堂`: recruited disciples with existing station/train/expedition/elder actions
+  - added UI action: `recruit-disciple`
+- Smoke update:
+  - `Disciples Train And Team Flow` now:
+    - researches disciple unlock tech
+    - recruits the unlocked disciple through the real UI button
+    - then trains and assigns that disciple as expedition leader
+- Verified locally:
+  - `node --check src/data/discipleRecruitment.js`
+  - `node --check src/core/store.js`
+  - `node --check src/systems/scriptureSystem.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/ui/panels/disciplesPanel.js`
+  - `node --check src/ui/disciplesEvents.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 55`
+  - result:
+    - `SMOKE PASS 13/13`
+
+## disciples-resonance-loop-v114
+- Based on `disciples-gacha-systems-v113`.
+- Goal: turn duplicate shard output into a real long-term progression sink by adding disciple resonance advancement, so recruit results keep feeding back into meaningful power growth.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/discipleAdvancement.js` (new)
+  - `src/data/discipleTraining.js`
+  - `src/systems/shared/effectResolver.js`
+  - `src/systems/disciplesBeastsSystem.js`
+  - `src/ui/disciplesEvents.js`
+  - `src/ui/panels/disciplesPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added `state.disciples.resonance`
+  - `normalizeState(...)` now hydrates resonance progress for save compatibility
+- New advancement data module:
+  - `src/data/discipleAdvancement.js` now owns:
+    - resonance max level
+    - rarity-based shard/resource costs
+    - resonance titles
+    - resonance bonus calculation
+  - `getDiscipleEffectMultiplier(...)` is now resonance-aware and remains re-exported through `discipleTraining.js`
+- System behavior:
+  - added `action:disciples/advanceResonance`
+  - `advanceDiscipleResonance(...)`:
+    - checks ownership
+    - checks max resonance cap
+    - spends `discipleShard + dao + spiritCrystal`
+    - writes the next resonance tier
+    - logs the breakthrough result
+  - `getDisciplesSnapshot(...)` now exposes:
+    - `resonanceLevel`
+    - `resonanceTitle`
+    - `resonanceBonus`
+    - `resonanceCost`
+    - `canAdvanceResonance`
+    - `nextEffectMultiplier`
+- Effect integration:
+  - stationed disciple effects and expedition disciple effects now both scale with:
+    - level
+    - resonance tier
+    - disciple rarity
+- UI update:
+  - disciples panel now shows:
+    - resonance overview card in the recruit hub
+    - per-disciple resonance tier/title on owned cards
+    - `共鸣突破` button with next-cost / next-multiplier tooltip
+  - copy on the disciples page was also refreshed so the recruit -> duplicate -> shard -> breakthrough loop reads more clearly
+- Smoke update:
+  - `Disciples Train And Team Flow` now also verifies:
+    - resonance breakthrough after shard gain
+    - expedition leader assignment still works after resonance progression
+- Verified locally:
+  - `node --check src/data/discipleAdvancement.js`
+  - `node --check src/data/discipleTraining.js`
+  - `node --check src/core/store.js`
+  - `node --check src/systems/shared/effectResolver.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/ui/disciplesEvents.js`
+  - `node --check src/ui/panels/disciplesPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 55`
+  - result:
+    - `SMOKE PASS 13/13`
+
+## disciples-rarity-copy-packaging-v111
+- Based on `disciples-recruitment-module-v110`.
+- Goal: strengthen disciple recruitment presentation with rarity packaging, richer recruit copy, and webnovel-inspired archetype positioning while keeping the cast as homage-style original characters instead of direct IP roster reuse.
+- Files touched:
+  - `src/data/disciples.js`
+  - `src/ui/uiFormatters.js`
+  - `src/ui/panelRenderers.js`
+  - `src/ui/renderApp.js`
+  - `src/ui/panels/disciplesPanel.js`
+  - `styles/theme.css`
+  - `docs/module-summary-latest.md`
+- Data/copy update:
+  - every disciple now includes:
+    - `rarity`
+    - `archetype`
+    - `recruitFlavor`
+    - `inspiration`
+  - copy direction was upgraded from simple function notes to recruitment-facing character packaging:
+    - `韩立` -> 凡人流主角 / 传说
+    - `苏轻禾` -> 灵植辅修 / 稀有
+    - `乌铁` -> 横练护道 / 稀有
+    - `云凰卫宁` -> 世家天才 / 史诗
+    - `林疏` -> 山门散修 / 稀有
+    - `叶苍穹` -> 剑道天骄 / 传说
+    - `沐轻烟` -> 禁术奇才 / 传说
+- UI/formatting update:
+  - added shared rarity helpers in `uiFormatters.js`:
+    - `getRarityLabel`
+    - `getRarityRank`
+    - `getRarityTagClass`
+  - disciples panel now:
+    - sorts candidates by rarity descending
+    - shows rarity tags on both recruitable and owned disciple cards
+    - shows `title + archetype + recruitFlavor`
+    - exposes richer tooltip lines for role packaging
+- Visual update:
+  - added rarity-specific tag styling in `styles/theme.css`
+    - common / rare / epic / legendary
+- Verified locally:
+  - `node --check src/data/disciples.js`
+  - `node --check src/ui/uiFormatters.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/renderApp.js`
+  - `node --check src/ui/panels/disciplesPanel.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 55`
+  - result:
+    - `SMOKE PASS 13/13`
+
+## disciples-recruit-pool-tokens-v112
+- Based on `disciples-rarity-copy-packaging-v111`.
+- Goal: replace per-disciple direct recruitment with an actual recruit-pool flow, and introduce token-gated advanced / targeted recruitment.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/discipleRecruitment.js`
+  - `src/systems/disciplesBeastsSystem.js`
+  - `src/ui/uiFormatters.js`
+  - `src/ui/panelRenderers.js`
+  - `src/ui/renderApp.js`
+  - `src/ui/disciplesEvents.js`
+  - `src/ui/panels/disciplesPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- Recruit model update:
+  - added disciple recruit state:
+    - `state.disciples.recruit.focusId`
+    - `state.disciples.recruit.lastResult`
+    - `state.disciples.recruit.history`
+  - added two token resources:
+    - `seekImmortalToken` -> `寻仙令`
+    - `tianmingSeal` -> `天命印`
+- Pool rules:
+  - `普通招募`
+    - spends normal resources
+    - randomly recruits from unlocked but unowned disciples
+  - `高级招募`
+    - spends `寻仙令`
+    - uses rarity-biased weights favoring epic / legendary
+  - `定向招募`
+    - spends `天命印`
+    - directly recruits the currently focused disciple from the candidate pool
+- System additions:
+  - `disciplesBeastsSystem` now handles:
+    - `action:disciples/recruitPool`
+    - `action:disciples/setRecruitFocus`
+    - `action:disciples/buyRecruitToken`
+  - recruit results are now recorded into persistent history for UI display
+- UI update:
+  - disciples page now has:
+    - recruit control hub
+    - token purchase cards
+    - candidate list with `设为目标`
+    - recruit history panel
+  - removed the old direct per-disciple recruit button flow from the main UX path
+- Smoke update:
+  - `Disciples Train And Team Flow` now verifies:
+    - scripture unlock path through `tiandi-zhenwen` and `wuxing-xiangsheng`
+    - token purchase
+    - advanced recruit
+    - focused targeted recruit
+    - disciple training and expedition leader assignment still work after the new recruit path
+- Verified locally:
+  - `node --check src/core/store.js`
+  - `node --check src/data/discipleRecruitment.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/ui/uiFormatters.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/renderApp.js`
+  - `node --check src/ui/disciplesEvents.js`
+  - `node --check src/ui/panels/disciplesPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 55`
+  - result:
+    - `SMOKE PASS 13/13`
+
+## disciples-gacha-systems-v113
+- Based on `disciples-recruit-pool-tokens-v112`.
+- Goal: complete the first two major recruit-loop upgrades in sequence:
+  - phase 1:
+    - ten-pull
+    - advanced pity
+    - duplicate-to-shard conversion
+  - phase 2:
+    - rotating banner
+    - limited UP
+    - faction-targeted pool
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/disciples.js`
+  - `src/data/discipleRecruitment.js`
+  - `src/data/techTree.js`
+  - `src/systems/disciplesBeastsSystem.js`
+  - `src/ui/uiFormatters.js`
+  - `src/ui/disciplesEvents.js`
+  - `src/ui/panels/disciplesPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added resource:
+    - `discipleShard` -> `命魂残片`
+  - expanded `state.disciples.recruit` with:
+    - `lastBatch`
+    - `selectedFactionId`
+    - `pity.advancedEpic`
+    - `pity.advancedLegendary`
+- Recruit data update:
+  - `discipleRecruitment.js` now owns:
+    - per-mode single / x10 costs
+    - duplicate shard rewards by rarity
+    - pity thresholds
+    - faction metadata
+    - rotating banner definitions
+    - active banner resolution
+    - weighted pick logic with guarantee filtering
+- Disciple/faction packaging:
+  - added `faction` to disciple definitions
+  - fixed a data inconsistency in `techTree.js`:
+    - `tiandi-zhenwen` now actually unlocks `wu-tie` to match the disciple definition
+- System behavior:
+  - `recruitFromPool(...)` now supports `count=1|10`
+  - advanced-family draws (`advanced` / `faction`) share pity counters
+  - duplicate pulls no longer fail silently:
+    - they convert into `命魂残片`
+  - faction pool filters candidates by selected faction
+  - direct targeted recruit remains available as `天命直收`
+- UI update:
+  - recruit page now exposes four entrypoints:
+    - `普通招募` single / x10
+    - `高级招募` single / x10
+    - `阵营定向池` single / x10
+    - `天命直收`
+  - page now shows:
+    - active rotating banner + UP targets
+    - advanced pity progress
+    - shard balance
+    - latest batch result summary
+    - faction selection chips
+- Smoke update:
+  - `Disciples Train And Team Flow` now verifies in one chain:
+    - `wu-tie` unlock path via `tiandi-zhenwen`
+    - `天命直收`
+    - advanced x10
+    - pity-driven `han-li` acquisition
+    - duplicate shard gain
+    - faction-pool draw
+    - disciple training + expedition leader assignment
+- Verified locally:
+  - `node --check src/data/disciples.js`
+  - `node --check src/data/discipleRecruitment.js`
+  - `node --check src/data/techTree.js`
+  - `node --check src/core/store.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/ui/uiFormatters.js`
+  - `node --check src/ui/disciplesEvents.js`
+  - `node --check src/ui/panels/disciplesPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 55`
+  - result:
+    - `SMOKE PASS 13/13`

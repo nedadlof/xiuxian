@@ -1,0 +1,42 @@
+export const beastDefinitions = [
+  {
+    id: 'earthfiend-shadowwolf',
+    name: '地煞·影狼',
+    tier: '地煞',
+    unlockNodeId: 'wanling-ganying',
+    modifiers: [{ type: 'resourceMultiplier', resourceId: 'wood', value: 0.12 }],
+    description: '首只引导异兽，提升伐木效率并给予轻度战场追击。',
+  },
+  {
+    id: 'taotie',
+    name: '饕餮',
+    tier: '绝代四凶',
+    unlockNodeId: 'juling-guiyi',
+    modifiers: [{ type: 'overflowConversion', resourceId: 'lingStone', value: 0.04 }],
+    description: '将溢出的低阶资源转化为万象养成价值。',
+  },
+  {
+    id: 'jiuying',
+    name: '九婴',
+    tier: '上古大妖',
+    unlockNodeId: 'tianhuo-zhenyan',
+    modifiers: [{ type: 'battleAttack', value: 0.18 }],
+    description: '提升战阵输出，偏战争流。',
+  },
+  {
+    id: 'hundun',
+    name: '混沌',
+    tier: '绝代四凶',
+    unlockNodeId: 'tian-gong-fuling',
+    modifiers: [{ type: 'battleDefense', value: 0.14 }],
+    description: '模糊克制边界，让阵容容错更高。',
+  },
+  {
+    id: 'qiongqi',
+    name: '穷奇',
+    tier: '绝代四凶',
+    unlockNodeId: 'tian-gong-fuling',
+    modifiers: [{ type: 'battleLoot', value: 0.22 }],
+    description: '以激进方式换取更多战利品。',
+  },
+];

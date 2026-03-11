@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UI Smoke Harness</title>
+    <link rel="stylesheet" href="./styles/theme.css" />
+    <style>
+      body {
+        padding: 24px;
+      }
+
+      .smoke-shell {
+        display: grid;
+        gap: 20px;
+      }
+
+      .smoke-result.pass {
+        border-left: 4px solid #2f7d32;
+      }
+
+      .smoke-result.fail {
+        border-left: 4px solid #b3261e;
+      }
+
+      .smoke-report {
+        display: grid;
+        gap: 12px;
+      }
+
+      .smoke-preview {
+        min-height: 240px;
+      }
+
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="smoke-shell">
+      <section class="panel">
+        <div class="panel-title"><h3>UI Smoke Harness</h3><span class="tag" id="smoke-status">等待执行</span></div>
+        <div class="inline-actions">
+          <button id="run-smoke">执行 Smoke</button>
+        </div>
+        <div class="detail-list">
+          <span>覆盖：Tab 切换、兵营招募、自动布阵、战争开战与战报生成</span>
+          <span>说明：该页面不会调用自动存档，也不会覆盖正常入口页面</span>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-title"><h3>结果</h3><span class="tag" id="smoke-summary">未执行</span></div>
+        <div class="smoke-report" id="smoke-report"></div>
+      </section>
+      <section class="panel smoke-preview">
+        <div class="panel-title"><h3>最后渲染预览</h3><span class="tag">renderGame</span></div>
+        <div id="app"></div>
+      </section>
+    </div>
+    <script>
+      (() => {
+        const query = new URLSearchParams(window.location.search);
+        const reportUrl = query.get('reportUrl');
+        if (!reportUrl) return;
+
+        const post = (payload) => {
+          fetch(reportUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }).catch(() => {});
+        };
+
+        window.addEventListener('error', (event) => {
+          post({
+            ok: false,
+            title: 'SMOKE BOOTSTRAP ERROR',
+            error: event?.error?.stack || event?.message || 'Unknown bootstrap error',
+            results: [],
+            finishedAt: new Date().toISOString(),
+          });
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+          const reason = event?.reason;
+          post({
+            ok: false,
+            title: 'SMOKE BOOTSTRAP REJECTION',
+            error: reason?.stack || reason?.message || String(reason),
+            results: [],
+            finishedAt: new Date().toISOString(),
+          });
+        });
+      })();
+    </script>
+    <script type="module" src="./src/dev/uiSmoke.js?v=20260311-1"></script>
+  </body>
+</html>
