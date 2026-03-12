@@ -205,6 +205,12 @@ export function createBaseState() {
       caseFileProgress: {},
       caseFileOffers: [],
       resolvedCaseFileIds: [],
+      autoDispatch: {
+        enabled: false,
+        priorityMode: 'case-first',
+        autoResolveEvents: true,
+        autoClaim: true,
+      },
     },
     logs: [],
   };
@@ -395,6 +401,17 @@ export function normalizeState(savedState = {}) {
           }))
         : base.commissions.caseFileOffers,
       resolvedCaseFileIds: uniqueList(savedState.commissions?.resolvedCaseFileIds, 12),
+      autoDispatch: {
+        ...base.commissions.autoDispatch,
+        ...(savedState.commissions?.autoDispatch ?? {}),
+        enabled: Boolean(savedState.commissions?.autoDispatch?.enabled ?? base.commissions.autoDispatch.enabled),
+        priorityMode: savedState.commissions?.autoDispatch?.priorityMode ?? base.commissions.autoDispatch.priorityMode,
+        autoResolveEvents: Boolean(
+          savedState.commissions?.autoDispatch?.autoResolveEvents
+            ?? base.commissions.autoDispatch.autoResolveEvents,
+        ),
+        autoClaim: Boolean(savedState.commissions?.autoDispatch?.autoClaim ?? base.commissions.autoDispatch.autoClaim),
+      },
     },
     logs: Array.isArray(savedState.logs)
       ? savedState.logs.slice(0, 80)

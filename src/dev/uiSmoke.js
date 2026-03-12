@@ -433,8 +433,21 @@ async function runSmoke() {
       shopButton.click();
       const afterShopState = harness.app.store.getState();
       assert((afterShopState.commissions?.purchasedShopItemIds?.length ?? 0) > (afterSupplyState.commissions?.purchasedShopItemIds?.length ?? 0), 'Commission shop item was not purchased');
+      assert(root.textContent.includes('委托排程'), 'Commission auto dispatch panel missing');
+      const beforeAutoClaimed = afterShopState.commissions?.claimedCount ?? 0;
+      clickAction('toggle-commission-auto-dispatch');
+      commissionState = harness.app.store.getState();
+      assert(commissionState.commissions?.autoDispatch?.enabled, 'Commission auto dispatch was not enabled');
+      harness.app.engine.runTick(1, 'smoke');
+      commissionState = harness.app.store.getState();
+      assert(commissionState.commissions?.active || (commissionState.commissions?.completed?.length ?? 0) > 0, 'Commission auto dispatch did not pick a mission');
+      harness.app.engine.runTick(480, 'smoke');
+      harness.app.engine.runTick(480, 'smoke');
+      commissionState = harness.app.store.getState();
+      assert((commissionState.commissions?.claimedCount ?? 0) > beforeAutoClaimed, 'Commission auto dispatch did not auto-settle missions');
+      assert(!commissionState.commissions?.active?.eventState?.pendingEvent, 'Commission auto dispatch left an event unresolved');
       assert((afterCaseState.resources?.dao ?? 0) > afterRerollDao, 'Commission rewards did not increase dao after settlement');
-      return `刷新委托榜并验证中断/冷却，含卷宗结案，历史 ${afterCaseState.commissions.history.length} 条`;
+      return `刷新委托榜并验证中断/冷却，含卷宗结案与自动排程，历史 ${commissionState.commissions.history.length} 条`;
     });
 
     await runCase('War Auto Preferences And Controls', async () => {

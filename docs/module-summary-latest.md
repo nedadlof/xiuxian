@@ -2275,3 +2275,59 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - `cmd /c run_ui_smoke.cmd --timeout 70`
   - result:
     - `SMOKE PASS 14/14`
+
+## commission-auto-dispatch-v129
+- Based on `commission-casefiles-v128`.
+- Goal: add a real commission scheduling automation layer so the mission loop behaves like a stronger idle game instead of requiring constant manual claim/start interaction.
+- Files touched:
+  - `src/core/store.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/missionsEvents.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added commission auto-dispatch settings:
+    - `state.commissions.autoDispatch.enabled`
+    - `state.commissions.autoDispatch.priorityMode`
+    - `state.commissions.autoDispatch.autoResolveEvents`
+    - `state.commissions.autoDispatch.autoClaim`
+  - auto-dispatch settings hydrate with saves and default to manual mode until the player enables them
+- System behavior upgrade:
+  - added internal commission automation flow that can:
+    - auto-claim finished missions
+    - auto-dispatch the next board / special / case mission
+    - auto-resolve pending mission events with the default option
+  - automation currently runs during non-offline ticks, so active browser play and smoke/runtime simulation both benefit without changing offline settlement semantics yet
+  - added three scheduling priority modes:
+    - `悬案优先`
+    - `诏令优先`
+    - `速刷循环`
+  - candidate selection now scores mission source, estimated收益、声望、事务点和周转速度，而不是只按固定来源顺序硬编码
+  - added new bus actions:
+    - `action:commissions/toggle-auto-dispatch`
+    - `action:commissions/cycle-auto-priority`
+    - `action:commissions/toggle-auto-resolve-events`
+  - commission snapshot now exposes the current automation configuration and available priority definitions for UI rendering
+- UI update:
+  - missions page top summary now includes a dedicated `委托排程` card
+  - the scheduler card shows:
+    - current enabled state
+    - current priority mode
+    - auto-claim / auto-resolve status
+    - direct controls for enable/disable, priority cycling, and event auto-resolution
+- Smoke update:
+  - `Commission Idle Loop` now verifies:
+    - the scheduler card renders
+    - automation can be enabled from the UI
+    - automation can pick a mission automatically
+    - automation can auto-settle at least one mission without leaving a pending event unresolved
+- Verified locally:
+  - `node --check src/core/store.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/missionsEvents.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`

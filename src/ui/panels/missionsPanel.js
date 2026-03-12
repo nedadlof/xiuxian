@@ -282,6 +282,22 @@ function renderCaseFileProgressSummary(caseFile = {}) {
   return `还需 ${caseFile.remainingProgress ?? 0} 点线索才能显化悬案。`;
 }
 
+function renderAutoDispatchSummary(autoDispatch = {}) {
+  if (!autoDispatch.enabled) {
+    return '当前保持手动委派，你可以随时切换为自动排程。';
+  }
+
+  return autoDispatch.currentMode?.description ?? '已开启自动排程。';
+}
+
+function renderAutoDispatchStateLine(autoDispatch = {}) {
+  if (!autoDispatch.enabled) {
+    return '自动结算、自动派遣与自动抉择均处于停用状态。';
+  }
+
+  return `自动结算 ${autoDispatch.autoClaim ? '开启' : '关闭'} · 途中事件自动抉择 ${autoDispatch.autoResolveEvents ? '开启' : '关闭'}`;
+}
+
 function renderSpecialOfferCard(offer, deps = {}) {
   const {
     tooltipAttr,
@@ -345,6 +361,7 @@ export function missionsPanel(state, registries, deps = {}) {
   const supplies = missions.supplies ?? [];
   const affairsShop = missions.affairsShop ?? [];
   const caseFiles = missions.caseFiles ?? [];
+  const autoDispatch = missions.autoDispatch ?? {};
   const preparationBoost = missions.preparationBoost ?? null;
   const progressPercent = renderProgressPercent(active);
   const readyCount = missions.available.filter((mission) => !mission.coolingDown).length;
@@ -385,6 +402,18 @@ export function missionsPanel(state, registries, deps = {}) {
             <div class="muted">${missions.reroll.affordable ? '刷新只影响常驻委托榜，限时诏令会按自己的时间轴刷新。' : '当前资源不足，无法刷新榜单。'}</div>
             <div class="inline-actions">
               <button ${missions.reroll.canReroll && missions.reroll.affordable ? '' : 'disabled'} data-action="reroll-commission-board">刷新榜单</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><strong>委托排程</strong><span class="tag">${autoDispatch.enabled ? (autoDispatch.currentMode?.name ?? '已启用') : '手动'}</span></div>
+            <div class="muted">${renderAutoDispatchSummary(autoDispatch)}</div>
+            <div class="muted">${renderAutoDispatchStateLine(autoDispatch)}</div>
+            <div class="muted">当前优先级：${autoDispatch.currentMode?.name ?? '未定'} · 已解锁悬案 ${readyCaseCount} 宗</div>
+            <div class="inline-actions">
+              <button data-action="toggle-commission-auto-dispatch">${autoDispatch.enabled ? '关闭排程' : '开启排程'}</button>
+              <button class="ghost" data-action="cycle-commission-auto-priority">切换优先级</button>
+              <button class="ghost" data-action="toggle-commission-auto-resolve-events">${autoDispatch.autoResolveEvents ? '事件自动' : '事件手动'}</button>
             </div>
           </div>
 

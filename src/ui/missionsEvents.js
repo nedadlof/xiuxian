@@ -24,6 +24,15 @@ function handleMissionsUiAction({ action, element, app }) {
     case 'purchase-commission-shop-item':
       app.bus.emit('action:commissions/purchase-shop-item', { itemId: element.dataset.id });
       return true;
+    case 'toggle-commission-auto-dispatch':
+      app.bus.emit('action:commissions/toggle-auto-dispatch');
+      return true;
+    case 'cycle-commission-auto-priority':
+      app.bus.emit('action:commissions/cycle-auto-priority');
+      return true;
+    case 'toggle-commission-auto-resolve-events':
+      app.bus.emit('action:commissions/toggle-auto-resolve-events');
+      return true;
     default:
       return false;
   }

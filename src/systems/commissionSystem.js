@@ -42,6 +42,42 @@ import {
 import { getExpeditionBondSnapshot } from '../data/expeditionBonds.js';
 import { appendLog } from './shared/logs.js';
 
+const COMMISSION_AUTO_PRIORITY_DEFINITIONS = Object.freeze([
+  {
+    id: 'case-first',
+    name: '悬案优先',
+    description: '优先追查已解锁的卷宗悬案，其次处理限时诏令，最后回到常驻委托。',
+    sourceWeights: {
+      case: 260000,
+      special: 140000,
+      board: 0,
+    },
+    speedWeight: 220,
+  },
+  {
+    id: 'special-first',
+    name: '诏令优先',
+    description: '优先吃掉限时诏令窗口，再顺手处理卷宗和常驻委托。',
+    sourceWeights: {
+      case: 120000,
+      special: 260000,
+      board: 0,
+    },
+    speedWeight: 200,
+  },
+  {
+    id: 'fast-cycle',
+    name: '速刷循环',
+    description: '优先选择收益密度更高、周转更快的委托，适合持续挂机滚动。',
+    sourceWeights: {
+      case: 90000,
+      special: 120000,
+      board: 160000,
+    },
+    speedWeight: 900,
+  },
+]);
+
 function ensureCommissionState(state) {
   state.commissions ??= {
     active: null,
@@ -73,6 +109,16 @@ function ensureCommissionState(state) {
   state.commissions.caseFileProgress ??= {};
   state.commissions.caseFileOffers ??= [];
   state.commissions.resolvedCaseFileIds ??= [];
+  state.commissions.autoDispatch ??= {
+    enabled: false,
+    priorityMode: 'case-first',
+    autoResolveEvents: true,
+    autoClaim: true,
+  };
+  state.commissions.autoDispatch.enabled ??= false;
+  state.commissions.autoDispatch.priorityMode ??= 'case-first';
+  state.commissions.autoDispatch.autoResolveEvents ??= true;
+  state.commissions.autoDispatch.autoClaim ??= true;
 }
 
 function canAffordCost(state, cost = {}) {
@@ -119,6 +165,34 @@ function getCommissionSourceLabel(sourceType = 'board') {
     return '卷宗悬案';
   }
   return '委托';
+}
+
+function listCommissionAutoPriorityDefinitions() {
+  return COMMISSION_AUTO_PRIORITY_DEFINITIONS.map((definition) => ({
+    ...definition,
+    sourceWeights: {
+      ...(definition.sourceWeights ?? {}),
+    },
+  }));
+}
+
+function getCommissionAutoPriorityDefinition(priorityMode = 'case-first') {
+  return listCommissionAutoPriorityDefinitions().find((definition) => definition.id === priorityMode)
+    ?? listCommissionAutoPriorityDefinitions()[0];
+}
+
+function getCommissionAutoDispatchState(state) {
+  ensureCommissionState(state);
+  const currentMode = getCommissionAutoPriorityDefinition(state.commissions.autoDispatch?.priorityMode);
+
+  return {
+    enabled: Boolean(state.commissions.autoDispatch?.enabled),
+    autoResolveEvents: Boolean(state.commissions.autoDispatch?.autoResolveEvents),
+    autoClaim: Boolean(state.commissions.autoDispatch?.autoClaim),
+    priorityMode: currentMode?.id ?? 'case-first',
+    currentMode,
+    modes: listCommissionAutoPriorityDefinitions(),
+  };
 }
 
 function getCommissionStandingSnapshot(state) {
@@ -643,6 +717,265 @@ function updateSpecialOffers(state, now = Date.now()) {
   }
 }
 
+function getCommissionRewardMapValue(reward = {}) {
+  const weights = {
+    dao: 1,
+    lingStone: 3,
+    spiritCrystal: 55,
+    herb: 1,
+    wood: 1,
+    iron: 1.2,
+    pills: 12,
+    talisman: 16,
+    discipleShard: 20,
+    tianmingSeal: 260,
+    seekImmortalToken: 180,
+  };
+
+  return Object.entries(reward ?? {}).reduce((sum, [resourceId, amount]) => (
+    sum + ((weights[resourceId] ?? 2) * (amount ?? 0))
+  ), 0);
+}
+
+function getCommissionAutoDispatchCandidateScore(candidate = {}, autoDispatch = {}) {
+  const sourceWeight = autoDispatch.currentMode?.sourceWeights?.[candidate.sourceType ?? 'board'] ?? 0;
+  const rewardValue = getCommissionRewardMapValue(candidate.evaluation?.totalReward ?? candidate.reward ?? {});
+  const metaValue = ((candidate.reputationReward ?? 0) * 180)
+    + ((candidate.affairsCreditReward ?? 0) * 220)
+    + (candidate.evaluation?.totalScore ?? 0)
+    + ((candidate.evaluation?.matchCount ?? 0) * 40);
+  const duration = Math.max(candidate.durationSeconds ?? 1, 1);
+  const speedValue = ((rewardValue + metaValue) / duration) * (autoDispatch.currentMode?.speedWeight ?? 0);
+  const urgencyValue = candidate.sourceType === 'special'
+    ? Math.max(300 - (candidate.expiresInSeconds ?? 300), 0) * 120
+    : 0;
+
+  return sourceWeight + rewardValue + metaValue + speedValue + urgencyValue;
+}
+
+function pickCommissionAutoDispatchTarget(snapshot = {}, autoDispatch = {}) {
+  const candidates = [
+    ...(snapshot.caseFiles ?? [])
+      .filter((caseFile) => caseFile.canStart)
+      .map((caseFile) => ({
+        ...caseFile,
+        dispatchId: caseFile.instanceId,
+        sourceType: 'case',
+      })),
+    ...(snapshot.specialOffers ?? [])
+      .filter((offer) => offer.canStart)
+      .map((offer) => ({
+        ...offer,
+        dispatchId: offer.instanceId,
+        sourceType: 'special',
+      })),
+    ...(snapshot.available ?? [])
+      .filter((mission) => mission.canStart)
+      .map((mission) => ({
+        ...mission,
+        dispatchId: mission.id,
+        sourceType: 'board',
+      })),
+  ];
+
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      autoScore: getCommissionAutoDispatchCandidateScore(candidate, autoDispatch),
+    }))
+    .sort((left, right) => right.autoScore - left.autoScore)[0] ?? null;
+}
+
+function resolveCommissionEventInState(state, optionId, { now = Date.now(), origin = 'manual' } = {}) {
+  ensureCommissionState(state);
+  ensureCommissionTheme(state);
+  const active = state.commissions.active;
+  const pendingEvent = active?.eventState?.pendingEvent;
+  if (!active || !pendingEvent) {
+    return false;
+  }
+
+  const definition = getCommissionSourceDefinition(active.sourceType, active.definitionId);
+  if (!definition) {
+    return false;
+  }
+
+  const pickedOption = pendingEvent.options?.find((option) => option.id === optionId);
+  if (!pickedOption) {
+    return false;
+  }
+
+  state.commissions.active = applyCommissionEventOption(active, definition, pickedOption, now);
+  const aftereffect = buildAftereffectState(pickedOption, pendingEvent.name);
+  if (aftereffect) {
+    state.commissions.aftereffect = aftereffect;
+    if ((aftereffect.specialSpawnAdvanceSeconds ?? 0) > 0) {
+      const advanceMs = aftereffect.specialSpawnAdvanceSeconds * 1000;
+      state.commissions.nextSpecialSpawnAt = Math.max(
+        now,
+        (state.commissions.nextSpecialSpawnAt ?? now) - advanceMs,
+      );
+    }
+  }
+
+  const prefix = origin === 'auto' ? '委托排程自动抉择' : '委托事件抉择';
+  appendLog(state, 'missions', `${prefix}：${pendingEvent.name} · ${pickedOption.label}`);
+  return true;
+}
+
+function startCommissionInState(state, registries, commissionId, { now = Date.now(), origin = 'manual' } = {}) {
+  ensureCommissionState(state);
+  const theme = ensureCommissionTheme(state, now);
+  sanitizeBoard(state, now);
+  updateSpecialOffers(state, now);
+  refreshCommissionCaseFileOffers(state, now);
+  if (hasActiveCommission(state)) {
+    return false;
+  }
+
+  const specialOffer = (state.commissions.specialOffers ?? []).find((offer) => offer.instanceId === commissionId);
+  const caseOffer = (state.commissions.caseFileOffers ?? []).find((offer) => offer.instanceId === commissionId);
+  const sourceType = specialOffer ? 'special' : (caseOffer ? 'case' : 'board');
+  const definition = specialOffer
+    ? getSpecialCommissionDefinition(specialOffer.definitionId)
+    : (caseOffer ? getCommissionCaseFileDefinition(caseOffer.caseFileId) : getCommissionDefinition(commissionId));
+
+  if (!definition) {
+    return false;
+  }
+  if (!specialOffer && !caseOffer && !(state.commissions.boardIds ?? []).includes(commissionId)) {
+    return false;
+  }
+  if (!specialOffer && !caseOffer && isCommissionCoolingDown(state.commissions.cooldowns, commissionId, now)) {
+    return false;
+  }
+  if (specialOffer && (specialOffer.expiresAt ?? 0) <= now) {
+    return false;
+  }
+  if (caseOffer && (state.commissions.resolvedCaseFileIds ?? []).includes(caseOffer.caseFileId)) {
+    refreshCommissionCaseFileOffers(state, now);
+    return false;
+  }
+
+  const teamSnapshot = buildExpeditionTeamSnapshot(state, registries);
+  if (!teamSnapshot.members.length) {
+    return false;
+  }
+
+  const preparationBoost = state.commissions.preparationBoost;
+  let evaluation = evaluateCommissionTeam(teamSnapshot, definition, {
+    theme,
+    sourceType,
+  });
+  evaluation = applyPreparationBoostToEvaluation(definition, evaluation, preparationBoost);
+  const durationMultiplier = Number(preparationBoost?.durationMultiplier) || 1;
+  const remainingSeconds = Math.max(Math.round((definition.durationSeconds ?? 1) * durationMultiplier), 1);
+  state.commissions.active = buildCommissionRecord(definition, teamSnapshot, evaluation, {
+    now,
+    sourceType,
+    sourceInstanceId: specialOffer?.instanceId ?? caseOffer?.instanceId ?? null,
+    remainingSeconds,
+  });
+  state.commissions.preparationBoost = null;
+
+  if (specialOffer) {
+    removeSpecialOffer(state, specialOffer.instanceId);
+    state.commissions.nextSpecialSpawnAt = now + (getCommissionSpecialRespawnSecondsForState(state) * 1000);
+    appendLog(state, 'missions', `${origin === 'auto' ? '委托排程自动接取' : '已接取'}限时诏令：${definition.name}`);
+  } else if (caseOffer) {
+    state.commissions.caseFileOffers = (state.commissions.caseFileOffers ?? []).filter((offer) => offer.instanceId !== caseOffer.instanceId);
+    appendLog(state, 'missions', `${origin === 'auto' ? '委托排程自动接取' : '已接取'}卷宗悬案：${definition.name}`);
+  } else {
+    appendLog(state, 'missions', `${origin === 'auto' ? '委托排程自动派遣' : '已派出'}委托：${definition.name}`);
+  }
+
+  return true;
+}
+
+function claimCommissionRewardInState(state, commissionId, { now = Date.now(), origin = 'manual' } = {}) {
+  ensureCommissionState(state);
+  ensureCommissionTheme(state, now);
+  refreshCommissionCaseFileOffers(state, now);
+  const targetIndex = state.commissions.completed.findIndex((item) => item.id === commissionId);
+  if (targetIndex < 0) {
+    return false;
+  }
+
+  const completed = state.commissions.completed[targetIndex];
+  const definition = getCommissionSourceDefinition(completed.sourceType, completed.definitionId);
+  const reputationReward = completed.reputationReward
+    ?? getCommissionReputationReward(definition ?? completed, completed.evaluation ?? {}, state, completed.sourceType);
+  const affairsCreditReward = completed.affairsCreditReward
+    ?? getCommissionAffairsCreditReward(definition ?? completed, completed.evaluation ?? {}, state, completed.sourceType);
+  addRewardToState(state, completed.evaluation?.totalReward ?? {});
+  state.commissions.reputation = (state.commissions.reputation ?? 0) + reputationReward;
+  state.commissions.affairsCredit = (state.commissions.affairsCredit ?? 0) + affairsCreditReward;
+  state.commissions.claimedCount = (state.commissions.claimedCount ?? 0) + 1;
+  if (completed.sourceType === 'special') {
+    state.commissions.specialClaimedCount = (state.commissions.specialClaimedCount ?? 0) + 1;
+  }
+  awardCommissionCaseFileProgress(state, completed, definition, now);
+  sanitizeBoard(state, now);
+  updateSpecialOffers(state, now);
+  state.commissions.completed.splice(targetIndex, 1);
+  state.commissions.history.unshift(buildHistoryEntry(completed, {
+    claimedAt: now,
+    resultType: completed.resultType ?? 'completed',
+    reputationReward,
+    affairsCreditReward,
+  }));
+  trimHistory(state);
+  appendLog(
+    state,
+    'missions',
+    `${origin === 'auto' ? '委托排程自动结算' : '已结算'}${getCommissionSourceLabel(completed.sourceType)}：${completed.name}`,
+  );
+  return true;
+}
+
+function shouldRunCommissionAutomation(source = 'runtime') {
+  return source !== 'offline';
+}
+
+function runCommissionAutomation(state, registries, source = 'runtime', now = Date.now()) {
+  if (!shouldRunCommissionAutomation(source)) {
+    return false;
+  }
+
+  const autoDispatch = getCommissionAutoDispatchState(state);
+  if (!autoDispatch.enabled) {
+    return false;
+  }
+
+  let changed = false;
+  const active = state.commissions.active;
+
+  if (active?.eventState?.pendingEvent && autoDispatch.autoResolveEvents) {
+    const defaultOption = active.eventState.pendingEvent.options?.find((option) => option.default)
+      ?? active.eventState.pendingEvent.options?.[0];
+    if (defaultOption) {
+      changed = resolveCommissionEventInState(state, defaultOption.id, { now, origin: 'auto' }) || changed;
+    }
+  }
+
+  if (!hasActiveCommission(state) && autoDispatch.autoClaim && (state.commissions.completed?.length ?? 0) > 0) {
+    const pending = state.commissions.completed?.[0];
+    if (pending) {
+      changed = claimCommissionRewardInState(state, pending.id, { now, origin: 'auto' }) || changed;
+    }
+  }
+
+  if (!hasActiveCommission(state) && (state.commissions.completed?.length ?? 0) === 0) {
+    const snapshot = getCommissionSnapshot(state, registries);
+    const target = pickCommissionAutoDispatchTarget(snapshot, autoDispatch);
+    if (target?.dispatchId) {
+      changed = startCommissionInState(state, registries, target.dispatchId, { now, origin: 'auto' }) || changed;
+    }
+  }
+
+  return changed;
+}
+
 export function createCommissionSystem() {
   return {
     id: 'commission-system',
@@ -686,20 +1019,33 @@ export function createCommissionSystem() {
       bus.on('action:commissions/purchase-shop-item', ({ itemId }) => {
         purchaseCommissionAffairsShopItem({ store }, itemId);
       });
+
+      bus.on('action:commissions/toggle-auto-dispatch', () => {
+        toggleCommissionAutoDispatch({ store });
+      });
+
+      bus.on('action:commissions/cycle-auto-priority', () => {
+        cycleCommissionAutoPriorityMode({ store });
+      });
+
+      bus.on('action:commissions/toggle-auto-resolve-events', () => {
+        toggleCommissionAutoResolveEvents({ store });
+      });
     },
-    tick({ store }, deltaSeconds, source = 'runtime') {
+    tick({ store, registries }, deltaSeconds, source = 'runtime') {
       store.update((draft) => {
         ensureCommissionState(draft);
-        ensureCommissionTheme(draft);
-        sanitizeBoard(draft);
-        updateSpecialOffers(draft);
-        refreshCommissionCaseFileOffers(draft);
+        const now = Date.now();
+        ensureCommissionTheme(draft, now);
+        sanitizeBoard(draft, now);
+        updateSpecialOffers(draft, now);
+        refreshCommissionCaseFileOffers(draft, now);
+        runCommissionAutomation(draft, registries, source, now);
         const active = draft.commissions.active;
         if (!active) {
           return;
         }
 
-        const now = Date.now();
         const definition = getCommissionSourceDefinition(active.sourceType, active.definitionId);
         if (!definition) {
           draft.commissions.active = null;
@@ -711,8 +1057,7 @@ export function createCommissionSystem() {
             const defaultOption = active.eventState.pendingEvent.options?.find((option) => option.default)
               ?? active.eventState.pendingEvent.options?.[0];
             if (defaultOption) {
-              draft.commissions.active = applyCommissionEventOption(active, definition, defaultOption, now);
-              appendLog(draft, 'missions', `离线代行事件抉择：${active.eventState.pendingEvent.name} · ${defaultOption.label}`);
+              resolveCommissionEventInState(draft, defaultOption.id, { now, origin: 'auto' });
             }
           }
           return;
@@ -771,6 +1116,7 @@ export function createCommissionSystem() {
         }
         trimHistory(draft);
         appendLog(draft, 'missions', `${getCommissionSourceLabel(completed.sourceType, completed.evaluation)}完成：${completed.name}`);
+        runCommissionAutomation(draft, registries, source, now);
       }, { type: 'commissions/tick', deltaSeconds });
     },
   };
@@ -780,71 +1126,7 @@ export function startCommission({ store, registries }, commissionId) {
   let success = false;
 
   store.update((draft) => {
-    ensureCommissionState(draft);
-    const theme = ensureCommissionTheme(draft);
-    sanitizeBoard(draft);
-    updateSpecialOffers(draft);
-    refreshCommissionCaseFileOffers(draft);
-    if (hasActiveCommission(draft)) {
-      return;
-    }
-
-    const now = Date.now();
-    const specialOffer = (draft.commissions.specialOffers ?? []).find((offer) => offer.instanceId === commissionId);
-    const caseOffer = (draft.commissions.caseFileOffers ?? []).find((offer) => offer.instanceId === commissionId);
-    const sourceType = specialOffer ? 'special' : (caseOffer ? 'case' : 'board');
-    const definition = specialOffer
-      ? getSpecialCommissionDefinition(specialOffer.definitionId)
-      : (caseOffer ? getCommissionCaseFileDefinition(caseOffer.caseFileId) : getCommissionDefinition(commissionId));
-
-    if (!definition) {
-      return;
-    }
-    if (!specialOffer && !caseOffer && !(draft.commissions.boardIds ?? []).includes(commissionId)) {
-      return;
-    }
-    if (!specialOffer && !caseOffer && isCommissionCoolingDown(draft.commissions.cooldowns, commissionId, now)) {
-      return;
-    }
-    if (specialOffer && (specialOffer.expiresAt ?? 0) <= now) {
-      return;
-    }
-    if (caseOffer && (draft.commissions.resolvedCaseFileIds ?? []).includes(caseOffer.caseFileId)) {
-      refreshCommissionCaseFileOffers(draft, now);
-      return;
-    }
-
-    const teamSnapshot = buildExpeditionTeamSnapshot(draft, registries);
-    if (!teamSnapshot.members.length) {
-      return;
-    }
-
-    const preparationBoost = draft.commissions.preparationBoost;
-    let evaluation = evaluateCommissionTeam(teamSnapshot, definition, {
-      theme,
-      sourceType,
-    });
-    evaluation = applyPreparationBoostToEvaluation(definition, evaluation, preparationBoost);
-    const durationMultiplier = Number(preparationBoost?.durationMultiplier) || 1;
-    const remainingSeconds = Math.max(Math.round((definition.durationSeconds ?? 1) * durationMultiplier), 1);
-    draft.commissions.active = buildCommissionRecord(definition, teamSnapshot, evaluation, {
-      now,
-      sourceType,
-      sourceInstanceId: specialOffer?.instanceId ?? null,
-      remainingSeconds,
-    });
-    draft.commissions.preparationBoost = null;
-    if (specialOffer) {
-      removeSpecialOffer(draft, specialOffer.instanceId);
-      draft.commissions.nextSpecialSpawnAt = now + (getCommissionSpecialRespawnSecondsForState(draft) * 1000);
-      appendLog(draft, 'missions', `已接取限时诏令：${definition.name}`);
-    } else if (caseOffer) {
-      draft.commissions.caseFileOffers = (draft.commissions.caseFileOffers ?? []).filter((offer) => offer.instanceId !== caseOffer.instanceId);
-      appendLog(draft, 'missions', `已接取卷宗悬案：${definition.name}`);
-    } else {
-      appendLog(draft, 'missions', `已派出委托：${definition.name}`);
-    }
-    success = true;
+    success = startCommissionInState(draft, registries, commissionId, { now: Date.now(), origin: 'manual' });
   }, { type: 'commissions/start', commissionId });
 
   return success;
@@ -854,41 +1136,7 @@ export function claimCommissionReward({ store }, commissionId) {
   let success = false;
 
   store.update((draft) => {
-    ensureCommissionState(draft);
-    ensureCommissionTheme(draft);
-    refreshCommissionCaseFileOffers(draft);
-    const targetIndex = draft.commissions.completed.findIndex((item) => item.id === commissionId);
-    if (targetIndex < 0) {
-      return;
-    }
-
-    const now = Date.now();
-    const completed = draft.commissions.completed[targetIndex];
-    const definition = getCommissionSourceDefinition(completed.sourceType, completed.definitionId);
-    const reputationReward = completed.reputationReward
-      ?? getCommissionReputationReward(definition ?? completed, completed.evaluation ?? {}, draft, completed.sourceType);
-    const affairsCreditReward = completed.affairsCreditReward
-      ?? getCommissionAffairsCreditReward(definition ?? completed, completed.evaluation ?? {}, draft, completed.sourceType);
-    addRewardToState(draft, completed.evaluation?.totalReward ?? {});
-    draft.commissions.reputation = (draft.commissions.reputation ?? 0) + reputationReward;
-    draft.commissions.affairsCredit = (draft.commissions.affairsCredit ?? 0) + affairsCreditReward;
-    draft.commissions.claimedCount = (draft.commissions.claimedCount ?? 0) + 1;
-    if (completed.sourceType === 'special') {
-      draft.commissions.specialClaimedCount = (draft.commissions.specialClaimedCount ?? 0) + 1;
-    }
-    awardCommissionCaseFileProgress(draft, completed, definition, now);
-    sanitizeBoard(draft, now);
-    updateSpecialOffers(draft, now);
-    draft.commissions.completed.splice(targetIndex, 1);
-    draft.commissions.history.unshift(buildHistoryEntry(completed, {
-      claimedAt: now,
-      resultType: completed.resultType ?? 'completed',
-      reputationReward,
-      affairsCreditReward,
-    }));
-    trimHistory(draft);
-    appendLog(draft, 'missions', `已结算${getCommissionSourceLabel(completed.sourceType, completed.evaluation)}：${completed.name}`);
-    success = true;
+    success = claimCommissionRewardInState(draft, commissionId, { now: Date.now(), origin: 'manual' });
   }, { type: 'commissions/claim', commissionId });
 
   return success;
@@ -1019,6 +1267,51 @@ export function purchaseCommissionAffairsShopItem({ store }, itemId) {
   return success;
 }
 
+export function toggleCommissionAutoDispatch({ store }) {
+  let enabled = false;
+
+  store.update((draft) => {
+    ensureCommissionState(draft);
+    draft.commissions.autoDispatch.enabled = !draft.commissions.autoDispatch.enabled;
+    enabled = draft.commissions.autoDispatch.enabled;
+    appendLog(draft, 'missions', `委托排程已${enabled ? '开启' : '关闭'}`);
+  }, { type: 'commissions/toggle-auto-dispatch' });
+
+  return enabled;
+}
+
+export function cycleCommissionAutoPriorityMode({ store }) {
+  let currentMode = null;
+
+  store.update((draft) => {
+    ensureCommissionState(draft);
+    const definitions = listCommissionAutoPriorityDefinitions();
+    const currentIndex = definitions.findIndex((definition) => definition.id === draft.commissions.autoDispatch.priorityMode);
+    const nextDefinition = definitions[(currentIndex + 1 + definitions.length) % definitions.length] ?? definitions[0];
+    if (!nextDefinition) {
+      return;
+    }
+    draft.commissions.autoDispatch.priorityMode = nextDefinition.id;
+    currentMode = nextDefinition;
+    appendLog(draft, 'missions', `委托排程切换为：${nextDefinition.name}`);
+  }, { type: 'commissions/cycle-auto-priority' });
+
+  return currentMode;
+}
+
+export function toggleCommissionAutoResolveEvents({ store }) {
+  let enabled = false;
+
+  store.update((draft) => {
+    ensureCommissionState(draft);
+    draft.commissions.autoDispatch.autoResolveEvents = !draft.commissions.autoDispatch.autoResolveEvents;
+    enabled = draft.commissions.autoDispatch.autoResolveEvents;
+    appendLog(draft, 'missions', `委托排程途中事件自动抉择已${enabled ? '开启' : '关闭'}`);
+  }, { type: 'commissions/toggle-auto-resolve-events' });
+
+  return enabled;
+}
+
 export function interruptCommission({ store }) {
   let success = false;
 
@@ -1096,38 +1389,7 @@ export function resolveCommissionEvent({ store }, optionId) {
   let success = false;
 
   store.update((draft) => {
-    ensureCommissionState(draft);
-    ensureCommissionTheme(draft);
-    const active = draft.commissions.active;
-    const pendingEvent = active?.eventState?.pendingEvent;
-    if (!active || !pendingEvent) {
-      return;
-    }
-
-    const definition = getCommissionSourceDefinition(active.sourceType, active.definitionId);
-    if (!definition) {
-      return;
-    }
-
-    const pickedOption = pendingEvent.options?.find((option) => option.id === optionId);
-    if (!pickedOption) {
-      return;
-    }
-
-    draft.commissions.active = applyCommissionEventOption(active, definition, pickedOption, Date.now());
-    const aftereffect = buildAftereffectState(pickedOption, pendingEvent.name);
-    if (aftereffect) {
-      draft.commissions.aftereffect = aftereffect;
-      if ((aftereffect.specialSpawnAdvanceSeconds ?? 0) > 0) {
-        const advanceMs = aftereffect.specialSpawnAdvanceSeconds * 1000;
-        draft.commissions.nextSpecialSpawnAt = Math.max(
-          Date.now(),
-          (draft.commissions.nextSpecialSpawnAt ?? Date.now()) - advanceMs,
-        );
-      }
-    }
-    appendLog(draft, 'missions', `委托事件抉择：${pendingEvent.name} · ${pickedOption.label}`);
-    success = true;
+    success = resolveCommissionEventInState(draft, optionId, { now: Date.now(), origin: 'manual' });
   }, { type: 'commissions/resolve-event', optionId });
 
   return success;
@@ -1269,6 +1531,7 @@ export function getCommissionSnapshot(state, registries) {
   const supplies = mapCommissionSupplySnapshot(state);
   const affairsShop = mapCommissionAffairsShopSnapshot(state);
   const rerollCost = getCommissionRerollCostForState(state);
+  const autoDispatch = getCommissionAutoDispatchState(state);
   const definitions = listCommissionDefinitions();
   const definitionMap = new Map(definitions.map((definition) => [definition.id, definition]));
   const teamSnapshot = buildExpeditionTeamSnapshot(state, registries);
@@ -1335,6 +1598,7 @@ export function getCommissionSnapshot(state, registries) {
     milestones,
     supplies,
     affairsShop,
+    autoDispatch,
     caseFiles,
     currentTheme: currentTheme
       ? {
