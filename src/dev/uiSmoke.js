@@ -359,20 +359,82 @@ async function runSmoke() {
     });
 
     await runCase('Commission Idle Loop', async () => {
+      harness.ensureResources({ spiritCrystal: 80, dao: 9999999 });
       harness.goToTab('missions');
+      assert(root.textContent.includes('宗门风向'), 'Commission theme panel missing');
+      assert(root.textContent.includes('委派阶位'), 'Commission standing panel missing');
+      assert(root.textContent.includes('专长命中'), 'Commission affinity summary missing');
       const beforeState = harness.app.store.getState();
-      const beforeLingStone = beforeState.resources?.lingStone ?? 0;
-      clickAction('start-commission', (element) => !element.disabled);
+      assert(beforeState.commissions?.currentThemeId, 'Commission theme was not initialized');
+      assert((beforeState.commissions?.currentThemeExpiresAt ?? 0) > Date.now(), 'Commission theme expiry missing');
+      const beforeReputation = beforeState.commissions?.reputation ?? 0;
+      const beforeBoard = (beforeState.commissions?.boardIds ?? []).join(',');
+      clickAction('reroll-commission-board', (element) => !element.disabled);
       let commissionState = harness.app.store.getState();
+      const rerolledBoard = (commissionState.commissions?.boardIds ?? []).join(',');
+      assert((commissionState.commissions?.rerollCooldownUntil ?? 0) > Date.now(), 'Commission reroll cooldown missing');
+      assert(rerolledBoard && rerolledBoard !== beforeBoard, 'Commission board did not change after reroll');
+      const afterRerollDao = commissionState.resources?.dao ?? 0;
+      clickAction('start-commission', (element) => !element.disabled);
+      commissionState = harness.app.store.getState();
       assert(commissionState.commissions?.active, '委托未成功开始');
+      const interruptedDefinitionId = commissionState.commissions?.active?.definitionId;
+      clickAction('cancel-commission');
+      commissionState = harness.app.store.getState();
+      assert(!commissionState.commissions?.active, 'Commission stayed active after cancel');
+      assert(commissionState.commissions?.history?.some((entry) => entry.resultType === 'interrupted'), 'Interrupted commission missing from history');
+      assert((commissionState.commissions?.cooldowns?.[interruptedDefinitionId] ?? 0) > Date.now(), 'Interrupted commission cooldown missing');
+      clickAction('start-commission', (element) => !element.disabled);
+      commissionState = harness.app.store.getState();
+      assert(commissionState.commissions?.active, 'Unable to start a new commission after cancel');
+      harness.app.engine.runTick(120, 'runtime');
+      commissionState = harness.app.store.getState();
+      assert(commissionState.commissions?.active?.eventState?.pendingEvent, 'Commission event did not trigger mid-run');
+      clickAction('resolve-commission-event', (element) => !element.disabled);
+      commissionState = harness.app.store.getState();
+      assert(!commissionState.commissions?.active?.eventState?.pendingEvent, 'Commission event was not resolved');
+      assert((commissionState.commissions?.active?.eventState?.resolvedEvents?.length ?? 0) > 0, 'Commission event resolution was not recorded');
+      assert(commissionState.commissions?.aftereffect, 'Commission aftereffect was not created');
       harness.app.engine.runTick(300, 'smoke');
       commissionState = harness.app.store.getState();
       assert((commissionState.commissions?.completed?.length ?? 0) > 0, '委托未在挂机后完成');
       clickAction('claim-commission', (element) => !element.disabled);
       const afterState = harness.app.store.getState();
-      assert((afterState.commissions?.history?.length ?? 0) > 0, '委托记录未写入历史');
-      assert((afterState.resources?.lingStone ?? 0) >= beforeLingStone, '委托结算后资源未增加');
-      return `委托完成并结算，历史 ${afterState.commissions.history.length} 条`;
+      assert(afterState.commissions?.history?.some((entry) => entry.resultType === 'completed'), 'Completed commission missing from history');
+      assert((afterState.commissions?.reputation ?? 0) > beforeReputation, 'Commission claim did not increase reputation');
+      assert(root.textContent.includes('卷宗悬案'), 'Commission case file panel missing');
+      const caseButton = [...root.querySelectorAll('[data-action="start-commission"]')].find((element) => element.dataset.sourceType === 'case' && !element.disabled);
+      assert(caseButton, 'No commission case file became dispatchable');
+      caseButton.click();
+      commissionState = harness.app.store.getState();
+      assert(commissionState.commissions?.active?.sourceType === 'case', 'Case file did not start');
+      harness.app.engine.runTick(240, 'smoke');
+      harness.app.engine.runTick(240, 'smoke');
+      commissionState = harness.app.store.getState();
+      const completedCase = commissionState.commissions?.completed?.find((entry) => entry.sourceType === 'case');
+      assert(completedCase, 'Case file did not complete');
+      assert((commissionState.commissions?.resolvedCaseFileIds ?? []).includes(completedCase.definitionId), 'Case file was not marked as resolved');
+      clickAction('claim-commission', (element) => element.dataset.id === completedCase.id);
+      const afterCaseState = harness.app.store.getState();
+      assert(afterCaseState.commissions?.history?.some((entry) => entry.sourceType === 'case' && entry.definitionId === completedCase.definitionId), 'Case file settlement did not enter history');
+      assert(root.textContent.includes('委派奖励册'), 'Commission milestone panel missing');
+      const claimableMilestone = [...root.querySelectorAll('[data-action="claim-commission-milestone"]')].find((element) => !element.disabled);
+      assert(claimableMilestone, 'No commission milestone became claimable');
+      claimableMilestone.click();
+      const afterMilestoneState = harness.app.store.getState();
+      assert((afterMilestoneState.commissions?.claimedMilestoneIds?.length ?? 0) > (afterCaseState.commissions?.claimedMilestoneIds?.length ?? 0), 'Commission milestone was not claimed');
+      const supplyButton = [...root.querySelectorAll('[data-action="purchase-commission-supply"]')].find((element) => !element.disabled);
+      assert(supplyButton, 'No commission supply was purchasable');
+      supplyButton.click();
+      const afterSupplyState = harness.app.store.getState();
+      assert(afterSupplyState.commissions?.preparationBoost || (afterSupplyState.commissions?.nextSpecialSpawnAt ?? 0) <= (afterMilestoneState.commissions?.nextSpecialSpawnAt ?? Infinity), 'Commission supply had no visible effect');
+      const shopButton = [...root.querySelectorAll('[data-action="purchase-commission-shop-item"]')].find((element) => !element.disabled);
+      assert(shopButton, 'No commission shop item was purchasable');
+      shopButton.click();
+      const afterShopState = harness.app.store.getState();
+      assert((afterShopState.commissions?.purchasedShopItemIds?.length ?? 0) > (afterSupplyState.commissions?.purchasedShopItemIds?.length ?? 0), 'Commission shop item was not purchased');
+      assert((afterCaseState.resources?.dao ?? 0) > afterRerollDao, 'Commission rewards did not increase dao after settlement');
+      return `刷新委托榜并验证中断/冷却，含卷宗结案，历史 ${afterCaseState.commissions.history.length} 条`;
     });
 
     await runCase('War Auto Preferences And Controls', async () => {
@@ -488,6 +550,13 @@ async function runSmoke() {
     });
 
     await runCase('Save And Hydrate Cycle', async () => {
+      harness.goToTab('missions');
+      if (!harness.app.store.getState().commissions?.active) {
+        clickAction('start-commission', (element) => !element.disabled);
+      }
+      harness.app.store.update((draft) => {
+        draft.meta.lastTickAt = Date.now() - 5 * 60 * 1000;
+      }, { type: 'smoke/offline-last-tick' });
       clickAction('save-game');
       const raw = window.localStorage.getItem(SAVE_KEY);
       assert(raw, 'hydrate 用例前未找到存档');
@@ -498,6 +567,19 @@ async function runSmoke() {
 
       const sourceState = harness.app.store.getState();
       const loadedState = hydratedApp.store.getState();
+      const sessionSummary = hydratedApp.getSessionSummary?.();
+      hydratedApp.store.update((draft) => {
+        draft.meta.activeTab = 'overview';
+      }, { type: 'smoke/hydrate-overview' });
+      const hydratedUiState = {};
+      renderGame(root, hydratedApp, hydratedUiState);
+      clearUiTimers(hydratedUiState);
+      assert((sessionSummary?.offlineSeconds ?? 0) >= 299, 'Offline session summary missing expected duration');
+      assert((sessionSummary?.commissions?.newCompletedCount ?? 0) >= 1, 'Offline session summary missing completed commissions');
+      assert(root.textContent.includes('离线进度'), 'Overview did not render offline summary');
+      assert(root.textContent.includes('委托进展'), 'Overview did not render commission offline progress');
+      renderGame(root, harness.app, harness.uiState);
+      clearUiTimers(harness.uiState);
 
       assert(loadedState.scripture.unlockedNodes.includes('bingdao-chushi'), '读档后缺少兵道初识');
       assert((loadedState.war.battleReports?.length ?? 0) >= 1, '读档后缺少战报');

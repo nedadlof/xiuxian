@@ -1605,3 +1605,673 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - `cmd /c run_ui_smoke.cmd --timeout 55`
   - result:
     - `SMOKE PASS 13/13`
+
+## commissions-strategy-reroll-v118
+- Based on `commissions-idle-loop-v117`.
+- Goal: make commissions meaningfully strategic and more replayable by tying reward shaping to team specialties, then add interruption / reroll / cooldown pacing so the missions tab becomes a real idle decision surface instead of a single-button loop.
+- Files touched:
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/core/store.js`
+  - `src/ui/panelRenderers.js`
+  - `src/ui/missionsEvents.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- Data/model update:
+  - expanded commission state with:
+    - `state.commissions.boardIds`
+    - `state.commissions.cooldowns`
+    - `state.commissions.rerollCooldownUntil`
+  - `normalizeState(...)` now hydrates the above for save compatibility.
+- Commission data contract upgrade:
+  - `src/data/commissions.js` now owns:
+    - a larger commission pool (board refreshable instead of fixed 3 hardcoded cards)
+    - `affinities` per commission for team specialty matching
+    - reroll/cooldown helpers:
+      - `rollCommissionBoard(...)`
+      - `getCommissionBoardSize()`
+      - `getCommissionRerollCost()`
+      - `getCommissionRerollCooldownSeconds()`
+      - `getCommissionRecoveryCooldownSeconds(resultType)`
+      - `isCommissionCoolingDown(...)`
+  - `evaluateCommissionTeam(...)` now resolves:
+    - `strategyScore`
+    - `matchedAffinities`
+    - `affinityReward`
+    - updated `totalReward`
+- System behavior upgrade:
+  - commission team snapshots now carry:
+    - disciple `station`
+    - expedition effect type hints
+  - added board lifecycle support in `commissionSystem`:
+    - initial board generation
+    - board reroll with resource cost + cooldown
+    - per-commission cooldown after completion / interruption
+    - active commission interruption
+  - new public actions:
+    - `action:commissions/cancel`
+    - `action:commissions/reroll`
+- UI update:
+  - missions tab now shows:
+    - reroll control card with cost / cooldown / affordability
+    - commission specialty hit summaries
+    - strategy score and directed reward preview
+    - active commission interruption button
+    - history entries that distinguish interrupted vs completed missions
+- Smoke update:
+  - `Commission Idle Loop` now also verifies:
+    - reroll changes the commission board
+    - reroll cooldown is written
+    - active commission can be interrupted
+    - interruption writes history + mission cooldown
+    - a new commission can then be started, completed, and claimed
+- Verified locally:
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/core/store.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/ui/missionsEvents.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## offline-commission-summary-v119
+- Based on `commissions-strategy-reroll-v118`.
+- Goal: surface offline挂机 progress as a real player-facing summary, especially for sect commissions, so reopening the game immediately tells the player what happened during the away session instead of hiding it only inside generic logs.
+- Files touched:
+  - `src/app.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/renderApp.js`
+  - `src/ui/panelRenderers.js`
+  - `src/ui/panels/overviewPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- App/session update:
+  - `createGameApp()` now keeps a runtime-only session summary via:
+    - `getSessionSummary()`
+  - hydrate flow now builds a session summary after offline simulation instead of only writing a generic log line.
+- Commission system update:
+  - added offline summary helpers:
+    - `summarizeCommissionRewards(completedList)`
+    - `summarizeCommissionOfflineProgress(beforeState, afterState)`
+  - summary focuses on:
+    - newly completed commissions during offline ticks
+    - claimable reward preview
+    - pending completed count
+    - continuing active commission state
+- UI update:
+  - overview tab now renders a dedicated `离线进度` section when the current session has offline settlement data
+  - the card includes:
+    - offline duration
+    - newly completed commission names/count
+    - pending claim reward preview
+    - continuing active commission status
+    - quick jump button to the missions tab
+  - wiring is injected through `panelRenderers` / `renderApp` so the overview panel remains decoupled from app internals.
+- Smoke update:
+  - `Save And Hydrate Cycle` now also verifies:
+    - a live commission is in progress before save
+    - an old `lastTickAt` triggers offline simulation on hydrate
+    - `getSessionSummary()` contains offline commission completion info
+    - overview renders the offline summary card after hydrate
+- Verified locally:
+  - `node --check src/app.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/renderApp.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/panels/overviewPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## commission-special-offers-v120
+- Based on `offline-commission-summary-v119`.
+- Goal: add limited-time commission events on top of the stable board loop, so the missions page gains urgency, higher-value targets, and more meaningful挂机 routing instead of only serving as a static reroll list.
+- Files touched:
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/core/store.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - expanded commission state with:
+    - `state.commissions.specialOffers`
+    - `state.commissions.nextSpecialSpawnAt`
+  - save normalization now preserves special offers / respawn timing.
+- Commission data contract upgrade:
+  - added dedicated special-offer definitions with event metadata:
+    - `eventType`
+    - `eventLabel`
+    - `expiresSeconds`
+  - added helpers:
+    - `listSpecialCommissionDefinitions()`
+    - `getSpecialCommissionDefinition(id)`
+    - `rollSpecialCommissionDefinition(...)`
+    - `getCommissionSpecialRespawnSeconds()`
+    - `getCommissionSpecialOfferLimit()`
+- System behavior upgrade:
+  - commission system now manages a second lifecycle besides the normal board:
+    - setup spawns a limited-time offer when needed
+    - expired offers are removed during tick
+    - consumed/expired offers respawn after cooldown
+  - special offers are started through the same `action:commissions/start` interface, but use a special `instanceId`
+  - active/completed/history commission records now preserve:
+    - `sourceType`
+    - `sourceInstanceId`
+    - event metadata for special offers
+  - board rerolls still only affect the normal board, not limited-time offers.
+- UI update:
+  - missions page now includes a separate `限时诏令` section
+  - each special card shows:
+    - event label
+    - remaining existence time
+    - team fit / strategy score
+    - higher-value reward preview
+  - active/completed/history entries now distinguish between:
+    - normal commissions
+    - special offers / limited orders
+- Verification note:
+  - existing smoke coverage for the missions loop remained green after the special-offer layer was added, confirming the normal board flow was not regressed by the new event tier.
+- Verified locally:
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/core/store.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## commission-midrun-events-v121
+- Based on `commission-special-offers-v120`.
+- Goal: make active commissions feel less like a passive timer by adding a mid-run event decision layer, so players occasionally choose between faster completion, safer routing, or higher reward spikes during挂机.
+- Files touched:
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/missionsEvents.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- Commission data contract upgrade:
+  - added commission event definitions with:
+    - `id/name/description`
+    - tag-based matching
+    - optional `sourceTypes` (normal board vs special offer)
+    - branching `options`
+      - `remainingSecondsMultiplier`
+      - `scoreBonus`
+      - `rewardBonus`
+  - added helpers:
+    - `listCommissionEventDefinitions()`
+    - `getCommissionEventDefinition(id)`
+    - `pickCommissionEventDefinition(...)`
+    - `getCommissionEventTriggerProgress()`
+    - `applyCommissionEventOutcome(definition, evaluation, option)`
+- System behavior upgrade:
+  - active commission records now carry:
+    - `eventState.triggerProgress`
+    - `eventState.pendingEvent`
+    - `eventState.resolvedEvents`
+  - one mid-run event can now trigger around the middle of a commission
+  - runtime behavior:
+    - when the event appears, commission progress pauses until the player chooses an option
+  - offline / non-runtime behavior:
+    - the system auto-picks the default option so offline progression never stalls
+  - new action:
+    - `action:commissions/resolve-event`
+- UI update:
+  - missions page now renders a dedicated `途中事件` card when a commission event is pending
+  - each option shows:
+    - route description
+    - speed / score / reward tradeoff summary
+    - direct choose button
+  - active commission card now also shows resolved decision history for the current run
+- Smoke update:
+  - `Commission Idle Loop` now also verifies:
+    - a mid-run commission event triggers during runtime progression
+    - the event can be resolved through UI action
+    - resolution is recorded before final commission settlement
+- Verified locally:
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/ui/missionsEvents.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## commission-aftereffect-routing-v122
+- Based on `commission-midrun-events-v121`.
+- Goal: let commission event choices leave short-lived downstream consequences, so a single mid-run decision can visibly bend the next board refreshes or special-order spawns and create a stronger long-term planning loop.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added `state.commissions.aftereffect`
+  - aftereffect state stores:
+    - label/description
+    - preferred tags
+    - remaining board refresh influences
+    - remaining special-spawn influences
+    - optional special-spawn acceleration
+- Commission data contract upgrade:
+  - every event option can now declare an `aftereffect`
+  - board/special roll helpers now accept preferred tag bias:
+    - `rollCommissionBoard(..., preferredTags)`
+    - `rollSpecialCommissionDefinition(..., preferredTags)`
+- System behavior upgrade:
+  - resolving a commission event can now create a short-lived aftereffect
+  - aftereffects can:
+    - bias the next normal commission board refresh
+    - bias the next limited-time order spawn
+    - pull the next special order forward in time
+  - aftereffect usage is consumed automatically when the influenced board/spawn is generated, then cleared when exhausted
+- UI update:
+  - missions page now renders a `委托余波` section when an aftereffect is active
+  - normal commissions and special offers now indicate when they are being pulled by the current aftereffect bias
+- Smoke update:
+  - `Commission Idle Loop` now also verifies that resolving a mid-run event writes a commission aftereffect into state
+- Verified locally:
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/core/store.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## commission-global-theme-v123
+- Based on `commission-aftereffect-routing-v122`.
+- Goal: add a slower-rotating global commission theme layer above short-lived aftereffects, so the missions board gains a stronger macro rhythm and players can plan around both current sect climate and temporary event fallout.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added long-lived commission theme state:
+    - `state.commissions.currentThemeId`
+    - `state.commissions.currentThemeExpiresAt`
+  - theme state now hydrates with the rest of the commission system
+- Commission data contract upgrade:
+  - added rotating theme definitions with:
+    - favored board tags
+    - favored special-offer tags
+    - score bonuses
+    - reward bonuses
+    - descriptive effect copy for UI
+  - added theme helpers:
+    - `listCommissionThemeDefinitions()`
+    - `getCommissionThemeDefinition(id)`
+    - `rollCommissionTheme(...)`
+    - `getCommissionThemeRotationSeconds()`
+  - `evaluateCommissionTeam(...)` now accepts theme/source options and folds theme bonus data into score and reward previews
+- System behavior upgrade:
+  - commission system now initializes a theme on setup and rotates it when expired
+  - board refreshes and limited-time special offers now combine:
+    - current global theme tag bias
+    - short-lived aftereffect tag bias
+  - active commission snapshots preserve the theme-adjusted evaluation they started with
+  - snapshot output now exposes current theme metadata and marks board/special entries as theme-favored when applicable
+- UI update:
+  - missions page now renders a dedicated `宗门风向` card
+  - the card shows:
+    - theme name
+    - remaining duration
+    - favored board/special tags
+    - score/reward bonus summary
+  - commission cards and special-offer cards now show theme influence alongside affinity and aftereffect information
+- Smoke update:
+  - `Commission Idle Loop` now verifies:
+    - the missions page renders the global theme panel
+    - commission theme state initializes with a future expiry
+- Verified locally:
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## commission-standing-progression-v124
+- Based on `commission-global-theme-v123`.
+- Goal: add long-term commission standing progression so the missions loop no longer resets emotionally after each settlement, and players can keep pushing toward better board control, lower reroll friction, and more limited-time opportunities.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added long-term commission progression state:
+    - `state.commissions.reputation`
+    - `state.commissions.claimedCount`
+    - `state.commissions.specialClaimedCount`
+  - standing state now hydrates with the rest of the commission system
+- Commission data contract upgrade:
+  - added standing definitions with:
+    - required reputation thresholds
+    - board size bonus
+    - limited-time offer cap bonus
+    - reroll discount
+    - reputation gain bonus
+    - perk summary copy for UI
+  - added standing helpers:
+    - `listCommissionStandingDefinitions()`
+    - `getCommissionStandingDefinition(id)`
+    - `getCommissionStandingByReputation(...)`
+    - `getNextCommissionStandingByReputation(...)`
+    - `getCommissionStandingProgress(...)`
+    - `getCommissionStandingBoardSize(...)`
+    - `getCommissionStandingSpecialOfferLimit(...)`
+    - `getCommissionStandingRerollCost(...)`
+    - `calculateCommissionReputationReward(...)`
+- System behavior upgrade:
+  - commission board size now grows with standing instead of staying permanently fixed
+  - limited-time special-offer capacity now scales with standing
+  - reroll cost now respects standing discounts
+  - claimed commissions now grant commission reputation and update long-term settlement counters
+  - when a standing threshold is crossed, the commission snapshot immediately re-sanitizes board/offers so new capacity can appear without reload
+  - snapshot output now exposes:
+    - current standing progress
+    - dynamic board size
+    - dynamic special-offer limit
+    - adjusted reroll cost
+    - per-commission reputation reward preview
+- UI update:
+  - missions page now renders a dedicated `委派阶位` card
+  - the card shows:
+    - current standing title
+    - current reputation and progress bar
+    - current perks
+    - distance to next tier
+  - commission cards, active commission card, completed settlements, and special offers now all show expected reputation gain
+- Smoke update:
+  - `Commission Idle Loop` now verifies:
+    - the standing panel renders on the missions page
+    - claiming a commission increases commission reputation
+- Verified locally:
+  - `node --check src/core/store.js`
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## commission-milestone-rewards-v125
+- Based on `commission-standing-progression-v124`.
+- Goal: turn commission reputation and settlement counts into explicit medium-term payout goals, so players have milestone moments between major standing upgrades instead of waiting only for passive stat increases.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/missionsEvents.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added persistent claimed milestone state:
+    - `state.commissions.claimedMilestoneIds`
+  - milestone claim state now hydrates with the rest of the commission system
+- Commission data contract upgrade:
+  - added commission milestone definitions with:
+    - reputation thresholds
+    - total settlement thresholds
+    - special-order settlement thresholds
+    - one-time reward payloads
+  - added milestone helpers:
+    - `listCommissionMilestoneDefinitions()`
+    - `getCommissionMilestoneDefinition(id)`
+    - `isCommissionMilestoneReached(...)`
+    - `getCommissionMilestoneProgress(...)`
+- System behavior upgrade:
+  - commission system now exposes milestone progress in the missions snapshot
+  - added new action:
+    - `action:commissions/claim-milestone`
+  - claiming a milestone grants its one-time reward directly into resources and records the milestone as claimed
+- UI update:
+  - missions page now renders a dedicated `委派奖励册` section
+  - every milestone card shows:
+    - requirement summary
+    - reward preview
+    - current remaining gap
+    - direct claim button when eligible
+  - added new UI event binding:
+    - `claim-commission-milestone`
+- Smoke update:
+  - `Commission Idle Loop` now verifies:
+    - the milestone panel renders
+    - at least one early milestone becomes claimable after the first completed claim
+    - milestone claiming writes into `claimedMilestoneIds`
+- Verified locally:
+  - `node --check src/core/store.js`
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/missionsEvents.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## commission-supply-procurement-v126
+- Based on `commission-milestone-rewards-v125`.
+- Goal: add a repeatable commission-side resource sink so players can actively trade resources for better mission tempo, stronger payouts, or faster special-order access instead of only waiting for passive standing growth.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/missionsEvents.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added `state.commissions.preparationBoost`
+  - preparation boost stores one queued next-commission procurement effect when a supply is bought outside active execution
+- Commission data contract upgrade:
+  - added supply definitions with:
+    - standing unlock requirement
+    - resource cost
+    - effect type
+    - current-mission / next-mission / special-offer manipulation data
+  - added supply helpers:
+    - `listCommissionSupplyDefinitions()`
+    - `getCommissionSupplyDefinition(id)`
+    - `getCommissionSupplyAvailability(...)`
+- System behavior upgrade:
+  - added new action:
+    - `action:commissions/procure`
+  - commission system now supports three supply directions:
+    - `加急牒文`
+      - speeds up the current commission if possible
+      - otherwise queues a shorter next commission via `preparationBoost`
+    - `赏格账册`
+      - increases the current commission reward/evaluation if one is running
+      - otherwise queues reward and score bonus for the next commission
+    - `夜行密报`
+      - pulls the next limited-time special order forward immediately
+  - starting a new commission now consumes queued preparation boosts automatically
+  - commission snapshot now exposes:
+    - available supply options
+    - unlock state
+    - affordability
+    - target label
+    - current queued preparation boost
+- UI update:
+  - missions page now renders a dedicated `委派补给局` section
+  - each supply card shows:
+    - current target
+    - cost
+    - effect summary
+    - unlock/affordability state
+    - direct purchase button
+  - when a next-commission boost is queued, the page also renders an `已备下轮补给` card
+  - added new UI event binding:
+    - `purchase-commission-supply`
+- Smoke update:
+  - `Commission Idle Loop` now verifies:
+    - a supply button becomes purchasable on the missions page
+    - purchasing a supply creates a visible state effect
+      - queued preparation boost or accelerated special spawn timing
+- Verified locally:
+  - `node --check src/core/store.js`
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/missionsEvents.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## commission-affairs-shop-v127
+- Based on `commission-supply-procurement-v126`.
+- Goal: add a commission-specific earned currency and a permanent upgrade shop, so repeated mission play creates a clearer medium-term spending loop instead of only generating one-off rewards and temporary boosts.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/missionsEvents.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added permanent commission shop state:
+    - `state.commissions.affairsCredit`
+    - `state.commissions.purchasedShopItemIds`
+  - affairs shop state now hydrates with the rest of the commission system
+- Commission data contract upgrade:
+  - added affairs shop item definitions with:
+    - standing unlock requirement
+    -事务点 cost
+    - permanent effect payload
+  - added affairs helpers:
+    - `listCommissionAffairsShopDefinitions()`
+    - `getCommissionAffairsShopDefinition(id)`
+    - `getCommissionAffairsShopAvailability(...)`
+    - `getCommissionAffairsUpgradeEffects(...)`
+    - `calculateCommissionAffairsCreditReward(...)`
+- System behavior upgrade:
+  - claiming a commission now also grants `affairsCredit`
+  - shop upgrades can permanently modify:
+    - board size
+    - limited-time offer cap
+    - reroll discount
+    - special-order respawn speed
+    - future affairs-credit income
+  - added new action:
+    - `action:commissions/purchase-shop-item`
+  - commission snapshot now exposes:
+    - affairs credit balance
+    - shop inventory
+    - purchase state
+    - per-commission affairs-credit reward preview
+- UI update:
+  - missions page now renders a dedicated `事务商店` section
+  - each shop card shows:
+    - permanent effect summary
+    - unlock state
+    - current affordability
+    - direct purchase button
+  - standing card now also shows current affairs credit balance
+  - board/special/completed/active commission cards now show expected affairs-credit income
+  - added new UI event binding:
+    - `purchase-commission-shop-item`
+- Smoke update:
+  - `Commission Idle Loop` now verifies:
+    - a commission shop item becomes purchasable after early commission progression
+    - purchasing it writes into `purchasedShopItemIds`
+- Verified locally:
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/missionsEvents.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## commission-casefiles-v128
+- Based on `commission-affairs-shop-v127`.
+- Goal: add a long-term dossier progression layer on top of routine commissions, so repeated dispatches can accumulate clues and unlock one-off high-value case missions instead of only feeding economy loops.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added case-file progression state:
+    - `state.commissions.caseFileProgress`
+    - `state.commissions.caseFileOffers`
+    - `state.commissions.resolvedCaseFileIds`
+  - case-file progress and unlocked offers now hydrate alongside the rest of the commission system
+- Commission data contract upgrade:
+  - added dossier-style elite commission definitions with:
+    - standing unlock requirement
+    - clue threshold
+    - preferred clue tags
+    - one-off case reward payloads
+  - added case-file helpers:
+    - `listCommissionCaseFileDefinitions()`
+    - `getCommissionCaseFileDefinition(id)`
+    - `calculateCommissionCaseFileClueGain(...)`
+    - `getCommissionCaseFileAvailability(...)`
+    - `getCommissionCaseFileProgress(...)`
+  - added dedicated `sourceType === 'case'` reward tuning for reputation and affairs credit
+- System behavior upgrade:
+  - regular commission settlement now feeds clue progress into unresolved dossiers based on mission tags
+  - once clue progress and standing requirements are both met, the corresponding `卷宗悬案` appears as a dispatchable elite mission
+  - case missions reuse the existing commission execution pipeline:
+    - start
+    - mid-run events
+    - completion
+    - settlement
+  - completed case missions are marked as resolved and removed from future offer rotation
+  - commission snapshot now exposes:
+    - dossier progress
+    - unlock state
+    - active case offers
+    - case-specific reward preview
+- UI update:
+  - missions page now renders a dedicated `卷宗悬案` section
+  - each dossier card shows:
+    - clue progress bar
+    - unlock requirement
+    - clue source tags
+    - dispatch state
+    - projected rewards
+  - start buttons now annotate their source type for board / special / case flows, which also makes smoke interaction more deterministic
+  - active and completed commission labels now correctly distinguish `卷宗悬案` from standard commissions and limited-time orders
+- Smoke update:
+  - `Commission Idle Loop` now verifies:
+    - the dossier panel renders
+    - early commission settlement can unlock a case file
+    - a case file can be dispatched and completed
+    - case resolution is written into `resolvedCaseFileIds`
+- Verified locally:
+  - `node --check src/core/store.js`
+  - `node --check src/data/commissions.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`

@@ -187,6 +187,24 @@ export function createBaseState() {
       active: null,
       completed: [],
       history: [],
+      boardIds: [],
+      cooldowns: {},
+      rerollCooldownUntil: 0,
+      specialOffers: [],
+      nextSpecialSpawnAt: 0,
+      aftereffect: null,
+      currentThemeId: null,
+      currentThemeExpiresAt: 0,
+      reputation: 0,
+      claimedCount: 0,
+      specialClaimedCount: 0,
+      claimedMilestoneIds: [],
+      preparationBoost: null,
+      affairsCredit: 0,
+      purchasedShopItemIds: [],
+      caseFileProgress: {},
+      caseFileOffers: [],
+      resolvedCaseFileIds: [],
     },
     logs: [],
   };
@@ -341,6 +359,42 @@ export function normalizeState(savedState = {}) {
       history: Array.isArray(savedState.commissions?.history)
         ? savedState.commissions.history.slice(0, 8)
         : base.commissions.history,
+      boardIds: uniqueList(savedState.commissions?.boardIds, 4),
+      cooldowns: {
+        ...base.commissions.cooldowns,
+        ...(savedState.commissions?.cooldowns ?? {}),
+      },
+      rerollCooldownUntil: savedState.commissions?.rerollCooldownUntil ?? base.commissions.rerollCooldownUntil,
+      specialOffers: Array.isArray(savedState.commissions?.specialOffers)
+        ? savedState.commissions.specialOffers.slice(0, 2)
+        : base.commissions.specialOffers,
+      nextSpecialSpawnAt: savedState.commissions?.nextSpecialSpawnAt ?? base.commissions.nextSpecialSpawnAt,
+      aftereffect: savedState.commissions?.aftereffect ?? base.commissions.aftereffect,
+      currentThemeId: savedState.commissions?.currentThemeId ?? base.commissions.currentThemeId,
+      currentThemeExpiresAt: savedState.commissions?.currentThemeExpiresAt ?? base.commissions.currentThemeExpiresAt,
+      reputation: Math.max(savedState.commissions?.reputation ?? base.commissions.reputation, 0),
+      claimedCount: Math.max(savedState.commissions?.claimedCount ?? base.commissions.claimedCount, 0),
+      specialClaimedCount: Math.max(savedState.commissions?.specialClaimedCount ?? base.commissions.specialClaimedCount, 0),
+      claimedMilestoneIds: uniqueList(savedState.commissions?.claimedMilestoneIds, 16),
+      preparationBoost: savedState.commissions?.preparationBoost ?? base.commissions.preparationBoost,
+      affairsCredit: Math.max(savedState.commissions?.affairsCredit ?? base.commissions.affairsCredit, 0),
+      purchasedShopItemIds: uniqueList(savedState.commissions?.purchasedShopItemIds, 12),
+      caseFileProgress: Object.fromEntries(
+        Object.entries(savedState.commissions?.caseFileProgress ?? {})
+          .map(([caseFileId, progress]) => [caseFileId, Math.max(Number(progress) || 0, 0)])
+          .filter(([, progress]) => progress > 0),
+      ),
+      caseFileOffers: Array.isArray(savedState.commissions?.caseFileOffers)
+        ? savedState.commissions.caseFileOffers
+          .filter((offer) => offer?.instanceId && offer?.caseFileId)
+          .slice(0, 6)
+          .map((offer) => ({
+            instanceId: offer.instanceId,
+            caseFileId: offer.caseFileId,
+            unlockedAt: offer.unlockedAt ?? 0,
+          }))
+        : base.commissions.caseFileOffers,
+      resolvedCaseFileIds: uniqueList(savedState.commissions?.resolvedCaseFileIds, 12),
     },
     logs: Array.isArray(savedState.logs)
       ? savedState.logs.slice(0, 80)

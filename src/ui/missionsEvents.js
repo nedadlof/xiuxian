@@ -6,6 +6,24 @@ function handleMissionsUiAction({ action, element, app }) {
     case 'claim-commission':
       app.bus.emit('action:commissions/claim', { commissionId: element.dataset.id });
       return true;
+    case 'cancel-commission':
+      app.bus.emit('action:commissions/cancel');
+      return true;
+    case 'reroll-commission-board':
+      app.bus.emit('action:commissions/reroll');
+      return true;
+    case 'resolve-commission-event':
+      app.bus.emit('action:commissions/resolve-event', { optionId: element.dataset.optionId });
+      return true;
+    case 'claim-commission-milestone':
+      app.bus.emit('action:commissions/claim-milestone', { milestoneId: element.dataset.id });
+      return true;
+    case 'purchase-commission-supply':
+      app.bus.emit('action:commissions/procure', { supplyId: element.dataset.id });
+      return true;
+    case 'purchase-commission-shop-item':
+      app.bus.emit('action:commissions/purchase-shop-item', { itemId: element.dataset.id });
+      return true;
     default:
       return false;
   }

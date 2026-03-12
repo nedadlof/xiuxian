@@ -41,6 +41,7 @@ export function renderGame(root, app, uiState = {}) {
       getRarityRank,
       getRarityTagClass,
       getTransientUiFeedback,
+      getSessionSummary: () => app.getSessionSummary?.() ?? null,
       resourceDisplayOrder: RESOURCE_DISPLAY_ORDER,
     },
   });

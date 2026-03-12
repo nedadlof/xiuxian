@@ -26,13 +26,16 @@ function createPanelRenderers({ uiState = {}, helpers = {} } = {}) {
     getRarityTagClass,
     getTransientUiFeedback,
     resourceDisplayOrder,
+    getSessionSummary,
   } = helpers;
 
   return {
     overview: (state, registries, nextUiState) => overviewPanel(state, registries, {
       tooltipAttr,
       formatNumber,
+      formatCostSummary,
       getResourceLabel,
+      getSessionSummary,
       resourceDisplayOrder,
       uiState: nextUiState ?? uiState,
     }),
@@ -84,6 +87,7 @@ function createPanelRenderers({ uiState = {}, helpers = {} } = {}) {
     missions: (state, registries, nextUiState) => missionsPanel(state, registries, {
       tooltipAttr,
       formatNumber,
+      formatTime,
       formatCostSummary,
       uiState: nextUiState ?? uiState,
     }),
