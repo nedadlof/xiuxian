@@ -1,5 +1,6 @@
 ﻿import { appendLog } from './shared/logs.js';
 import { collectUnlockedEffects, sumEffects } from './shared/effectResolver.js';
+import { getBattleLoadoutSnapshot } from './shared/battleLoadout.js';
 import { listBattlePreparationDefinitions } from '../data/battlePreparations.js';
 import { resolveFormationSynergies } from '../data/formationSynergies.js';
 import { getWarehouseEffects } from '../data/warehouse.js';
@@ -29,6 +30,15 @@ function clamp01(value) {
 
 function round2(value) {
   return Math.round(value * 100) / 100;
+}
+
+function getTeamBattlePower(team = null) {
+  return Math.round(
+    (team?.rowProfiles ?? []).reduce(
+      (sum, row) => sum + (row.attackPower ?? 0) + ((row.defensePower ?? 0) * 0.2),
+      0,
+    ),
+  );
 }
 
 function randomFactor() {
@@ -190,14 +200,17 @@ function addResourceMap(target, source = {}) {
   return target;
 }
 
-function buildBattleAdvice(state, registries, currentStage, army) {
+function buildBattleAdvice(state, registries, currentStage, army, loadoutSnapshot = null) {
   if (!currentStage) {
     return [];
   }
 
   const advice = [];
-  const armyEstimate = Math.round(((army?.attackPower ?? 0) + (army?.defensePower ?? 0) + (army?.sustainPower ?? 0)) / 3);
-  const stagePowerGap = Math.max((currentStage.enemyPower ?? 0) - armyEstimate, 0);
+  const armyEstimate = army?.previewBattlePower
+    ?? army?.estimatedPower
+    ?? Math.round(((army?.attackPower ?? 0) + (army?.defensePower ?? 0) + (army?.sustainPower ?? 0)) / 3);
+  const stageTargetPower = currentStage.recommendedBattlePower ?? currentStage.enemyBattlePower ?? currentStage.enemyPower ?? 0;
+  const stagePowerGap = Math.max(stageTargetPower - armyEstimate, 0);
   const enemyTags = new Set(currentStage.enemyTags ?? []);
   const preparationLevels = state.preparations?.levels ?? {};
   const activeBeastCount = (state.beasts?.activeIds ?? []).length;
@@ -207,7 +220,7 @@ function buildBattleAdvice(state, registries, currentStage, army) {
   ].filter(Boolean).length;
   const preparationMap = new Map(listBattlePreparationDefinitions().map((item) => [item.id, item]));
 
-  if (stagePowerGap > 30 || enemyTags.has('defense') || enemyTags.has('melee')) {
+  if (stagePowerGap > 60 || enemyTags.has('defense') || enemyTags.has('melee')) {
     const level = preparationLevels['smithy-armament'] ?? 0;
     advice.push({
       id: 'smithy-armament',
@@ -219,7 +232,7 @@ function buildBattleAdvice(state, registries, currentStage, army) {
     });
   }
 
-  if (enemyTags.has('control') || enemyTags.has('magic') || stagePowerGap > 0) {
+  if (enemyTags.has('control') || enemyTags.has('magic') || stagePowerGap > 40) {
     const level = preparationLevels['alchemy-tonic'] ?? 0;
     advice.push({
       id: 'alchemy-tonic',
@@ -265,7 +278,38 @@ function buildBattleAdvice(state, registries, currentStage, army) {
     });
   }
 
-  return advice.slice(0, 3);
+  if ((loadoutSnapshot?.activeWeaponCount ?? 0) <= 0 || (loadoutSnapshot?.activePillCount ?? 0) <= 0) {
+    advice.push({
+      id: 'crafting-loadout',
+      title: '先补专武专丹',
+      summary: '当前兵种还没有吃到锻炉与丹阁的偏好加成。至少锻出一件适配兵器、炼出一批适配丹药，推荐配队和实战推演都会更稳。',
+      actionLabel: '前往工坊',
+      targetTab: 'economy',
+      prepName: '战备适配',
+    });
+  } else if ((loadoutSnapshot?.topUnits?.[0]?.fitScore ?? 0) < 48) {
+    advice.push({
+      id: 'crafting-retune',
+      title: '调整专武专丹路线',
+      summary: '当前主力兵种吃到的战备适配还不够高。优先围绕推荐配队的主力兵种，补对应流派的武器和丹药，会比继续堆通用加成更划算。',
+      actionLabel: '重配战备',
+      targetTab: 'economy',
+      prepName: loadoutSnapshot?.topUnits?.[0]?.styleLabel ?? '兵种偏好',
+    });
+  }
+
+  if (expeditionCount > 0 && (loadoutSnapshot?.averageExpeditionFit ?? 0) < 52) {
+    advice.push({
+      id: 'disciple-loadout',
+      title: '给出征弟子配偏好战备',
+      summary: '出征弟子已经上阵，但当前专武/专丹和他们的流派不够契合，联动掉落还没完全吃满。',
+      actionLabel: '查看弟子偏好',
+      targetTab: 'disciples',
+      prepName: '弟子战备',
+    });
+  }
+
+  return advice.slice(0, 4);
 }
 
 function scoreFormationForStage(formation, stage) {
@@ -291,7 +335,7 @@ function scoreFormationForStage(formation, stage) {
   return score;
 }
 
-function buildTacticalRecommendation(state, registries, currentStage, units = []) {
+function buildTacticalRecommendation(state, registries, currentStage, units = [], loadoutSnapshot = null) {
   if (!currentStage) {
     return { formation: null, squad: [], shortage: { missingResources: {}, suggestedRewardFocus: [] } };
   }
@@ -310,6 +354,7 @@ function buildTacticalRecommendation(state, registries, currentStage, units = []
     .map((unit) => {
       const count = state.war.trainedUnits?.[unit.id] ?? 0;
       const tagScore = (unit.tags ?? []).reduce((sum, tag) => sum + (enemyTags.has(tag) ? -0.2 : 0), 0);
+      const loadout = loadoutSnapshot?.byUnitId?.[unit.id] ?? unit.loadout ?? null;
       let preferredRow = getDefaultRow(unit);
       if (unit.role === 'frontline' || unit.tags?.includes('defense')) preferredRow = 1;
       else if (unit.tags?.includes('support') || unit.tags?.includes('sustain')) preferredRow = 6;
@@ -320,11 +365,16 @@ function buildTacticalRecommendation(state, registries, currentStage, units = []
         unitName: unit.name,
         count,
         targetCount: Math.max(count, unit.counterProfile?.counterHits?.length > 0 ? 12 : 8),
-        score: (unit.counterProfile?.score ?? 0) + tagScore + Math.min(count / 8, 2),
+        score: (unit.counterProfile?.score ?? 0)
+          + tagScore
+          + Math.min(count / 8, 2)
+          + ((loadout?.fitScore ?? 0) / 28)
+          + (((loadout?.bonus?.attack ?? 0) + (loadout?.bonus?.defense ?? 0) + (loadout?.bonus?.sustain ?? 0)) * 12),
         counters: unit.counterProfile?.counterHits ?? [],
         weakHits: unit.counterProfile?.weakHits ?? [],
         role: unit.role,
         preferredRow,
+        loadout,
       };
     })
     .filter((unit) => unit.count > 0 || unit.counters.length > 0)
@@ -403,6 +453,17 @@ function buildLinkedBattleRewards(state, stage, expeditionBondSnapshot = null, o
   if (stage?.encounterType === 'boss') {
     rewards.seekImmortalToken = Math.max(rewards.seekImmortalToken ?? 0, 1);
     rewards.tianmingSeal = 1;
+  }
+
+  const rewardBonusMap = options.expeditionLoadout?.rewardBonusMap ?? {};
+  for (const [resourceId, bonus] of Object.entries(rewardBonusMap)) {
+    if ((rewards[resourceId] ?? 0) <= 0) {
+      continue;
+    }
+    rewards[resourceId] = Math.max(
+      rewards[resourceId],
+      Math.round(rewards[resourceId] * (1 + bonus)),
+    );
   }
 
   return Object.fromEntries(Object.entries(rewards).filter(([, amount]) => amount > 0));
@@ -680,10 +741,11 @@ function buildRowSummary(state, registries) {
   return summary;
 }
 
-function calculateArmyPower(state, registries, stage = null) {
+function calculateArmyPower(state, registries, stage = null, loadoutSnapshot = null) {
   const availableUnits = getAvailableUnits(state, registries);
   const formation = getFormation(registries, state.war.formationId) ?? { modifiers: { attack: 0, defense: 0, sustain: 0 } };
   const { all } = collectUnlockedEffects(state, registries);
+  const resolvedLoadout = loadoutSnapshot ?? getBattleLoadoutSnapshot(state, registries);
   const synergyRoster = availableUnits.map((unit) => ({
     id: unit.id,
     tags: unit.tags ?? [],
@@ -701,6 +763,9 @@ function calculateArmyPower(state, registries, stage = null) {
   let totalUnits = 0;
   let strategyBonus = 0;
   const composition = {};
+  let loadoutAttackBonus = 0;
+  let loadoutDefenseBonus = 0;
+  let loadoutSustainBonus = 0;
 
   for (const unit of availableUnits) {
     const count = state.war.trainedUnits[unit.id] ?? 0;
@@ -708,18 +773,25 @@ function calculateArmyPower(state, registries, stage = null) {
 
     const row = getUnitRow(state, registries, unit);
     const rowModifier = getRowModifier(row);
+    const loadout = resolvedLoadout.byUnitId?.[unit.id] ?? null;
     totalUnits += count;
     composition[unit.id] = count;
     const unitBase = count * ((unit.power * 1.2) + (unit.hp * 0.4));
     const modifier = getTerrainModifier(stage, unit) + getCounterModifier(unit, stage?.enemyTags ?? []);
     basePower += unitBase * (1 + modifier + rowModifier.attack * 0.6 + rowModifier.defense * 0.3);
-    strategyBonus += (modifier + rowModifier.attack * 0.5 + rowModifier.defense * 0.2) * count;
+    strategyBonus += (modifier + rowModifier.attack * 0.5 + rowModifier.defense * 0.2 + ((loadout?.fitScore ?? 0) / 100) * 0.35) * count;
+    loadoutAttackBonus += (loadout?.bonus?.attack ?? 0) * count;
+    loadoutDefenseBonus += (loadout?.bonus?.defense ?? 0) * count;
+    loadoutSustainBonus += (loadout?.bonus?.sustain ?? 0) * count;
   }
 
   const supportCount = availableUnits
     .filter((unit) => unit.tags.includes('support'))
     .reduce((sum, unit) => sum + (state.war.trainedUnits[unit.id] ?? 0), 0);
   const supportRatio = totalUnits > 0 ? Math.min(supportCount / totalUnits, 0.25) : 0;
+  const loadoutAttackRatio = totalUnits > 0 ? loadoutAttackBonus / totalUnits : 0;
+  const loadoutDefenseRatio = totalUnits > 0 ? loadoutDefenseBonus / totalUnits : 0;
+  const loadoutSustainRatio = totalUnits > 0 ? loadoutSustainBonus / totalUnits : 0;
 
   return {
     totalUnits,
@@ -728,10 +800,16 @@ function calculateArmyPower(state, registries, stage = null) {
     basePower,
     supportRatio,
     strategyScore: strategyBonus,
+    estimatedPower: Math.round(basePower * (1 + supportRatio * 0.1 + ((battleAttackBonus + battleDefenseBonus + battleSustainBonus) / 3))),
     composition,
-    attackPower: basePower * (1 + battleAttackBonus + supportRatio * 0.2),
-    defensePower: basePower * (1 + battleDefenseBonus + supportRatio * 0.08),
-    sustainPower: basePower * (1 + battleSustainBonus + supportRatio * 0.12),
+    loadout: {
+      averageAttackBonus: loadoutAttackRatio,
+      averageDefenseBonus: loadoutDefenseRatio,
+      averageSustainBonus: loadoutSustainRatio,
+    },
+    attackPower: basePower * (1 + battleAttackBonus + supportRatio * 0.2 + loadoutAttackRatio),
+    defensePower: basePower * (1 + battleDefenseBonus + supportRatio * 0.08 + loadoutDefenseRatio),
+    sustainPower: basePower * (1 + battleSustainBonus + supportRatio * 0.12 + loadoutSustainRatio),
   };
 }
 
@@ -752,8 +830,9 @@ function getUnitSpeed(unit, side = 'ally') {
   return Math.max(55, speed);
 }
 
-function buildPlayerTeam(state, registries, stage) {
+function buildPlayerTeam(state, registries, stage, loadoutSnapshot = null) {
   const { all } = collectUnlockedEffects(state, registries);
+  const resolvedLoadoutSnapshot = loadoutSnapshot ?? getBattleLoadoutSnapshot(state, registries);
   const unitPowerBonus = 1 + sumEffects(all, 'unitPowerMultiplier');
   const formation = getFormation(registries, state.war.formationId) ?? { modifiers: { attack: 0, defense: 0, sustain: 0 } };
   const synergyRoster = getAvailableUnits(state, registries).map((unit) => ({
@@ -770,14 +849,16 @@ function buildPlayerTeam(state, registries, stage) {
       const row = getUnitRow(state, registries, unit);
       const rowModifier = getRowModifier(row);
       const terrainModifier = getTerrainModifier(stage, unit) + getCounterModifier(unit, stage.enemyTags ?? []);
-      const attackPower = count * unit.power * unitPowerBonus * (1 + terrainModifier + rowModifier.attack) * (1 + (formation.modifiers.attack ?? 0) + (synergies.modifiers.attack ?? 0));
-      const defensePower = count * unit.hp * (unit.tags.includes('defense') ? 1.2 : 1) * (1 + rowModifier.defense) * (1 + (formation.modifiers.defense ?? 0) + (synergies.modifiers.defense ?? 0));
-      const sustainPower = count * (unit.tags.includes('support') || unit.tags.includes('sustain') ? 1.4 : 0.7) * (1 + rowModifier.sustain) * (1 + (formation.modifiers.sustain ?? 0) + (synergies.modifiers.sustain ?? 0));
+      const loadout = resolvedLoadoutSnapshot.byUnitId?.[unit.id] ?? null;
+      const attackPower = count * unit.power * unitPowerBonus * (1 + terrainModifier + rowModifier.attack) * (1 + (formation.modifiers.attack ?? 0) + (synergies.modifiers.attack ?? 0) + (loadout?.bonus?.attack ?? 0));
+      const defensePower = count * unit.hp * (unit.tags.includes('defense') ? 1.2 : 1) * (1 + rowModifier.defense) * (1 + (formation.modifiers.defense ?? 0) + (synergies.modifiers.defense ?? 0) + (loadout?.bonus?.defense ?? 0));
+      const sustainPower = count * (unit.tags.includes('support') || unit.tags.includes('sustain') ? 1.4 : 0.7) * (1 + rowModifier.sustain) * (1 + (formation.modifiers.sustain ?? 0) + (synergies.modifiers.sustain ?? 0) + (loadout?.bonus?.sustain ?? 0));
       const maxHp = count * unit.hp * battlePacing.playerHpMultiplier;
       return {
         ...unit,
         count,
         row,
+        loadout,
         attackPower,
         defensePower,
         sustainPower,
@@ -822,6 +903,7 @@ function buildPlayerTeam(state, registries, stage) {
     rowProfiles,
     formation,
     synergies,
+    loadoutSnapshot: resolvedLoadoutSnapshot,
     battlePacing,
     statuses: {
       shield: 0,
@@ -3038,8 +3120,8 @@ function resolveBattleReport(draft, registries, stage, playerTeam, enemyTeam, ro
     victory,
     retreated,
     battleMode: options.battleMode ?? 'auto',
-    combinedPower: Math.round(playerTeam.rowProfiles.reduce((sum, row) => sum + row.attackPower + row.defensePower * 0.2, 0)),
-    enemyPower: Math.round(enemyTeam.rowProfiles.reduce((sum, row) => sum + row.attackPower + row.defensePower * 0.2, 0)),
+    combinedPower: getTeamBattlePower(playerTeam),
+    enemyPower: getTeamBattlePower(enemyTeam),
     casualtyRatio,
     reward,
     rewardBreakdown,
@@ -3534,11 +3616,16 @@ export function getWarSnapshot(state, registries) {
   const formation = getFormation(registries, state.war.formationId);
   const warehouseEffects = getWarehouseEffects(state);
   const { expeditionBondSnapshot } = collectUnlockedEffects(state, registries);
+  const loadoutSnapshot = getBattleLoadoutSnapshot(state, registries);
   ensureFormationRows(state, registries);
 
   const stageSnapshots = registries.stages.list().map((stage) => {
     const cleared = state.war.clearedStages.includes(stage.id);
-    const linkedReward = buildLinkedBattleRewards(state, stage, expeditionBondSnapshot, { alreadyCleared: cleared });
+    const enemyBattlePower = getTeamBattlePower(buildEnemyTeam(stage));
+    const linkedReward = buildLinkedBattleRewards(state, stage, expeditionBondSnapshot, {
+      alreadyCleared: cleared,
+      expeditionLoadout: loadoutSnapshot,
+    });
     return {
       ...stage,
       unlocked: isStageUnlocked(state, stage),
@@ -3546,6 +3633,8 @@ export function getWarSnapshot(state, registries) {
       cleared,
       current: state.war.currentStageId === stage.id,
       enemyPreview: getEnemyPreview(stage),
+      enemyBattlePower,
+      recommendedBattlePower: stage.recommendedBattlePower ?? enemyBattlePower,
       encounterType: stage.encounterType ?? 'normal',
       mechanics: stage.mechanics ?? [],
       rewardProfile: getRewardProfile(stage),
@@ -3554,7 +3643,14 @@ export function getWarSnapshot(state, registries) {
   });
 
   const currentStage = stageSnapshots.find((stage) => stage.current) ?? stageSnapshots[0] ?? null;
-  const army = calculateArmyPower(state, registries, currentStage);
+  const previewPlayerTeam = currentStage ? buildPlayerTeam(state, registries, currentStage, loadoutSnapshot) : null;
+  const army = {
+    ...calculateArmyPower(state, registries, currentStage, loadoutSnapshot),
+    previewBattlePower: getTeamBattlePower(previewPlayerTeam),
+  };
+  if (currentStage) {
+    currentStage.powerGap = Math.round((currentStage.recommendedBattlePower ?? currentStage.enemyBattlePower ?? 0) - (army.previewBattlePower ?? 0));
+  }
   const activeBattle = state.war.currentBattle ? buildLiveBattleSnapshot(state.war.currentBattle) : null;
   const stageEnemyTags = currentStage?.enemyTags ?? [];
   const units = getAvailableUnits(state, registries).map((unit) => {
@@ -3565,6 +3661,7 @@ export function getWarSnapshot(state, registries) {
       row: getUnitRow(state, registries, unit),
       counterProfile,
       counterModifier: getCounterModifier(unit, stageEnemyTags),
+      loadout: loadoutSnapshot.byUnitId?.[unit.id] ?? null,
     };
   });
   const counterAdvice = [...units]
@@ -3578,8 +3675,9 @@ export function getWarSnapshot(state, registries) {
       counterHits: unit.counterProfile.counterHits,
       weakHits: unit.counterProfile.weakHits,
       count: unit.count,
+      loadout: unit.loadout,
     }));
-  const tacticalRecommendation = buildTacticalRecommendation(state, registries, currentStage, units);
+  const tacticalRecommendation = buildTacticalRecommendation(state, registries, currentStage, units, loadoutSnapshot);
 
   return {
     units,
@@ -3596,7 +3694,8 @@ export function getWarSnapshot(state, registries) {
     counterAdvice,
     tacticalRecommendation,
     lastRecommendedPrep: state.war.lastRecommendedPrep ?? null,
-    battleAdvice: buildBattleAdvice(state, registries, currentStage, army),
+    battleAdvice: buildBattleAdvice(state, registries, currentStage, army, loadoutSnapshot),
+    loadoutOverview: loadoutSnapshot,
     activeBattle,
     reports: state.war.battleReports,
   };

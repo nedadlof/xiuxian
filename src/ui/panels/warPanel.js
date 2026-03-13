@@ -12,6 +12,38 @@ function rewardLine(label, reward = {}, formatCostSummary) {
   return summary === '无' ? '' : `<div class="muted">${label}：${summary}</div>`;
 }
 
+function getStageTargetPower(stage) {
+  return stage?.recommendedBattlePower ?? stage?.enemyBattlePower ?? stage?.enemyPower ?? 0;
+}
+
+function getStagePressureMeta(powerGap = 0) {
+  if (powerGap <= 0) {
+    return {
+      label: '可直接突破',
+      summary: '当前军势已经达到推荐线附近，可以直接一键挑战，优先把首通奖励和联动掉落滚起来。',
+    };
+  }
+
+  if (powerGap <= 90) {
+    return {
+      label: '再补一手',
+      summary: '距离推荐线不远，补少量兵力、专武专丹或首通材料后，通常就能稳定推进。',
+    };
+  }
+
+  if (powerGap <= 260) {
+    return {
+      label: '需要养成',
+      summary: '建议先回刷高收益关卡，补灵兽、弟子和工坊联动，再回来冲关会更稳。',
+    };
+  }
+
+  return {
+    label: '明显卡关',
+    summary: '这个阶段已经进入后期壁垒，需要更多长线游玩时间，逐步把兵种克制、灵兽羁绊和战备适配都拉满。',
+  };
+}
+
 function renderStageCard(stage, deps = {}) {
   const {
     tooltipAttr,
@@ -20,26 +52,30 @@ function renderStageCard(stage, deps = {}) {
     getEncounterTypeLabel,
   } = deps;
   const linkedRewardLine = rewardLine('联动掉落', stage.rewardPreview?.linkedReward ?? {}, formatCostSummary);
+  const stageTargetPower = getStageTargetPower(stage);
 
   return `
     <div class="card" ${tooltipAttr([
       stage.description,
-      `敌方战力：${formatNumber(stage.enemyPower)}`,
+      `难度层级：${stage.difficultyLabel ?? '常规推进'}`,
+      `建议军势：${formatNumber(stageTargetPower)}`,
       `基础奖励：${formatCostSummary(stage.rewardPreview?.baseReward ?? stage.reward)}`,
       `联动掉落：${formatCostSummary(stage.rewardPreview?.linkedReward ?? {})}`,
+      stage.progressionGoal ? `推进目标：${stage.progressionGoal}` : null,
       stage.unlocked ? '状态：可挑战' : `解锁条件：${stage.lockReasons?.join(' · ') ?? '未满足'}`,
     ])}>
       <div class="card-title">
         <strong>${stage.name}</strong>
         <span class="tag">${stage.current ? '当前目标' : getEncounterTypeLabel(stage.encounterType)}</span>
       </div>
-      <div class="muted">${stage.world} · ${stage.terrain} · 敌方战力 ${formatNumber(stage.enemyPower)}</div>
+      <div class="muted">${stage.world} · ${stage.terrain} · ${stage.difficultyLabel ?? '常规推进'}</div>
       ${rewardLine('基础奖励', stage.rewardPreview?.baseReward ?? stage.reward, formatCostSummary)}
       ${rewardLine('固定掉落', stage.rewardPreview?.guaranteedLoot ?? {}, formatCostSummary)}
       ${rewardLine('首通奖励', stage.rewardPreview?.firstClearBonus ?? {}, formatCostSummary)}
       ${linkedRewardLine}
       <div class="detail-list">
-        <span>${stage.cleared ? '已通关，可继续刷取资源' : '首通会额外掉落材料'}</span>
+        <span>建议军势 ${formatNumber(stageTargetPower)}</span>
+        <span>${stage.cleared ? '已通关，可继续刷取资源' : (stage.progressionGoal ?? '首通会额外掉落材料')}</span>
         <span>${(stage.mechanics?.length ?? 0) > 0 ? `机制 ${stage.mechanics.length} 项` : '无特殊机制'}</span>
       </div>
       <div class="inline-actions">
@@ -47,6 +83,31 @@ function renderStageCard(stage, deps = {}) {
         <button ${stage.unlocked ? '' : 'disabled'} data-action="quick-challenge-stage" data-id="${stage.id}">${stage.cleared ? '再次扫荡' : '一键挑战'}</button>
       </div>
     </div>
+  `;
+}
+
+function renderProgressionCurveCard(currentStage, army, deps = {}) {
+  const { formatNumber } = deps;
+  if (!currentStage) {
+    return '';
+  }
+
+  const currentBattlePower = army?.previewBattlePower ?? 0;
+  const targetBattlePower = getStageTargetPower(currentStage);
+  const pressureMeta = getStagePressureMeta(currentStage.powerGap ?? (targetBattlePower - currentBattlePower));
+
+  return `
+    <section class="panel">
+      <div class="panel-title"><h3>推进节奏</h3><span class="tag">${pressureMeta.label}</span></div>
+      <div class="mini-grid">
+        <div class="card"><div class="muted">当前层级</div><strong>${currentStage.difficultyLabel ?? '常规推进'}</strong></div>
+        <div class="card"><div class="muted">建议军势</div><strong>${formatNumber(targetBattlePower)}</strong></div>
+        <div class="card"><div class="muted">当前军势</div><strong>${formatNumber(currentBattlePower)}</strong></div>
+        <div class="card"><div class="muted">差距</div><strong>${formatNumber(Math.max(currentStage.powerGap ?? (targetBattlePower - currentBattlePower), 0))}</strong></div>
+      </div>
+      <div class="muted">${pressureMeta.summary}</div>
+      <div class="muted">推进目标：${currentStage.progressionGoal ?? '补强当前阵容和联动收益后继续挑战。'}</div>
+    </section>
   `;
 }
 
@@ -243,6 +304,9 @@ export function warPanel(state, registries, deps = {}) {
   const latestReport = war.reports?.[0] ?? null;
   const defaultAutoStrategy = war.autoPreferences?.strategyId ?? 'skill-first';
   const defaultAutoSpeed = war.autoPreferences?.speedId ?? 'normal';
+  const currentBattlePower = war.army?.previewBattlePower ?? 0;
+  const currentTargetPower = getStageTargetPower(currentStage);
+  const pressureMeta = getStagePressureMeta(currentStage?.powerGap ?? (currentTargetPower - currentBattlePower));
 
   return `
     <div class="grid">
@@ -250,9 +314,11 @@ export function warPanel(state, registries, deps = {}) {
         <div class="panel-title"><h3>战斗总览</h3><span class="tag">简化推演</span></div>
         <div class="mini-grid">
           <div class="card"><div class="muted">当前目标</div><strong>${currentStage?.name ?? '未选择'}</strong></div>
+          <div class="card"><div class="muted">难度分层</div><strong>${currentStage?.difficultyLabel ?? '常规推进'}</strong></div>
+          <div class="card"><div class="muted">建议军势</div><strong>${formatNumber(currentTargetPower)}</strong></div>
+          <div class="card"><div class="muted">当前军势</div><strong>${formatNumber(currentBattlePower)}</strong></div>
           <div class="card"><div class="muted">已通关</div><strong>${state.war.clearedStages.length} 关</strong></div>
-          <div class="card"><div class="muted">默认策略</div><strong>${getAutoBattleStrategyMeta(defaultAutoStrategy).label}</strong></div>
-          <div class="card"><div class="muted">推演速度</div><strong>${getAutoBattleSpeedMeta(defaultAutoSpeed).label}</strong></div>
+          <div class="card"><div class="muted">推进压强</div><strong>${pressureMeta.label}</strong></div>
         </div>
         <div class="inline-actions">
           ${getAutoBattleStrategyOptions().map((strategy) => `<button class="${defaultAutoStrategy === strategy.id ? 'secondary' : 'ghost'}" data-action="battle-auto-strategy" data-id="${strategy.id}">${strategy.label}</button>`).join('')}
@@ -260,9 +326,11 @@ export function warPanel(state, registries, deps = {}) {
         <div class="inline-actions">
           ${getAutoBattleSpeedOptions().map((speed) => `<button class="${defaultAutoSpeed === speed.id ? 'secondary' : 'ghost'}" data-action="battle-auto-speed" data-id="${speed.id}">${speed.label}</button>`).join('')}
         </div>
-        <div class="muted">主流程已经简化为“设目标 -> 一键挑战 -> 直接看结果与掉落”。详细逐手操作不再作为主界面核心。</div>
+        <div class="muted">主流程已经简化为“设目标 -> 一键挑战 -> 直接看结果与掉落”。前期会更快给到首通回报，后期则会明显提高养成要求。</div>
+        <div class="muted">默认策略：${getAutoBattleStrategyMeta(defaultAutoStrategy).label} · 推演速度：${getAutoBattleSpeedMeta(defaultAutoSpeed).label}</div>
       </section>
 
+      ${renderProgressionCurveCard(currentStage, war.army, { formatNumber })}
       ${renderRewardFocusCard(currentStage, { formatCostSummary })}
       ${renderCounterFocusCard(war.counterAdvice)}
       ${renderTacticalPlanCard(war.tacticalRecommendation, war.lastRecommendedPrep, { formatCostSummary, getResourceLabel: deps.getResourceLabel })}

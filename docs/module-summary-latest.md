@@ -3869,3 +3869,65 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 16/16`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-13 战斗数值曲线前松后紧与军势展示校准
+
+- Main goal:
+  - rebalance the war loop so early progression is very forgiving and frequently rewarding
+  - make late progression ramp much harder, turning ancient and celestial stages into long-term goals
+  - give the player a clearer, comparable battle-power target in UI
+
+- Balance and pacing update:
+  - upgraded `src/data/stages.js`
+  - each stage now carries:
+    - `difficultyLabel`
+    - `progressionGoal`
+    - more intentional first-clear reward shaping
+  - early progression changes:
+    - reduced pressure from `stage-mortal-1` through `stage-cultivation-1`
+    - front-loaded wood / herb / iron / pill / beast / disciple rewards so early clears convert faster into visible upgrades
+    - battle pacing now gives players more room to win quickly and feel continuous growth
+  - late progression changes:
+    - `stage-ancient-2` onward now ramps harder
+    - `stage-celestial-1/2` act more like long-term walls
+    - hard stages now pay back more through stronger reward profiles
+
+- Economy catch-up tuning:
+  - upgraded `src/data/balance.js`
+  - building upgrade costs now use a tiered curve:
+    - early levels are cheaper than before
+    - later levels rise above the old baseline
+  - upgraded `src/data/units.js`
+  - early and midgame troop training costs were reduced so the first several pushes need less waiting and show army growth faster
+
+- War system and UI update:
+  - upgraded `src/systems/warSystem.js`
+  - war snapshots now expose a comparable battle-power layer:
+    - `enemyBattlePower`
+    - `recommendedBattlePower`
+    - `previewBattlePower`
+    - `powerGap`
+  - battle advice now keys off the comparable preview power instead of the raw stage config number
+  - upgraded `src/ui/panels/warPanel.js`
+  - the war page now highlights:
+    - difficulty tier
+    - recommended battle power
+    - current battle power
+    - progression pressure state
+    - explicit per-stage progression goals
+
+- Recovery note:
+  - restored `src/data/beastExpeditionEvents.js`
+  - the file had been accidentally deleted in the working tree and would have caused runtime import failure despite passing syntax-only checks
+
+- Verified locally:
+  - `node --check src/data/beastExpeditionEvents.js`
+  - `node --check src/data/balance.js`
+  - `node --check src/data/stages.js`
+  - `node --check src/data/units.js`
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 90`
+  - result:
+    - `SMOKE PASS 16/16`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression

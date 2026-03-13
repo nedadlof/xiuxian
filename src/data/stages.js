@@ -274,24 +274,182 @@
 
 
 
-const stageBattlePacingProfiles = {
-  'stage-mortal-1': { maxRounds: 8, playerHpMultiplier: 8.4, enemyHpMultiplier: 13.5, globalDamageMultiplier: 0.6 },
-  'stage-mortal-2': { maxRounds: 9, playerHpMultiplier: 8.6, enemyHpMultiplier: 14.2, globalDamageMultiplier: 0.58 },
-  'stage-mortal-3': { maxRounds: 10, playerHpMultiplier: 8.8, enemyHpMultiplier: 15.4, globalDamageMultiplier: 0.56 },
-  'stage-cultivation-1': { maxRounds: 10, playerHpMultiplier: 8.9, enemyHpMultiplier: 15.8, globalDamageMultiplier: 0.56 },
-  'stage-cultivation-2': { maxRounds: 10, playerHpMultiplier: 9.1, enemyHpMultiplier: 16.2, globalDamageMultiplier: 0.54 },
-  'stage-cultivation-3': { maxRounds: 11, playerHpMultiplier: 9.2, enemyHpMultiplier: 16.8, globalDamageMultiplier: 0.53 },
-  'stage-ancient-1': { maxRounds: 11, playerHpMultiplier: 9.4, enemyHpMultiplier: 17.2, globalDamageMultiplier: 0.52 },
-  'stage-ancient-2': { maxRounds: 11, playerHpMultiplier: 9.6, enemyHpMultiplier: 17.8, globalDamageMultiplier: 0.51 },
-  'stage-ancient-3': { maxRounds: 12, playerHpMultiplier: 9.8, enemyHpMultiplier: 18.5, globalDamageMultiplier: 0.5 },
-  'stage-celestial-1': { maxRounds: 12, playerHpMultiplier: 10.1, enemyHpMultiplier: 19.4, globalDamageMultiplier: 0.49 },
-  'stage-celestial-2': { maxRounds: 14, playerHpMultiplier: 10.6, enemyHpMultiplier: 21, globalDamageMultiplier: 0.47 },
+const stageProgressionProfiles = {
+  'stage-mortal-1': {
+    enemyPower: 90,
+    reward: { lingStone: 180, wood: 70, herb: 24, dao: 24 },
+    difficultyLabel: '试锋热身',
+    progressionGoal: '先练起 8 到 10 名基础兵种，吃满首通补给后再滚木材、灵草和第一枚灵兽碎片。',
+    rewardProfile: {
+      rewardMultiplier: 1.08,
+      firstClearBonus: { lingStone: 140, wood: 60, herb: 50, beastShard: 1 },
+      guaranteedDrops: [{ resourceId: 'wood', amount: 18 }],
+    },
+  },
+  'stage-mortal-2': {
+    enemyPower: 128,
+    reward: { lingStone: 240, wood: 36, herb: 72, dao: 36 },
+    difficultyLabel: '顺手收菜',
+    progressionGoal: '兵力补到 12 到 16 人，并混入枪兵或军医，尽快把炼丹和弟子招募前置材料攒起来。',
+    rewardProfile: {
+      rewardMultiplier: 1.1,
+      firstClearBonus: { lingStone: 180, herb: 72, pills: 8, discipleShard: 8 },
+      guaranteedDrops: [{ resourceId: 'herb', amount: 20 }],
+    },
+  },
+  'stage-mortal-3': {
+    enemyPower: 178,
+    reward: { lingStone: 320, wood: 96, herb: 48, iron: 28, dao: 48 },
+    difficultyLabel: '前排考核',
+    progressionGoal: '前排和支援要开始成型，建议补盾卫与战阵后再冲，首通资源可以直接回流到锻造和灵兽线。',
+    rewardProfile: {
+      rewardMultiplier: 1.12,
+      firstClearBonus: { lingStone: 220, iron: 36, pills: 10, beastShard: 1, discipleShard: 10 },
+      guaranteedDrops: [{ resourceId: 'iron', amount: 12 }],
+    },
+  },
+  'stage-cultivation-1': {
+    enemyPower: 238,
+    reward: { lingStone: 380, iron: 58, herb: 42, pills: 18, dao: 60 },
+    difficultyLabel: '修真起步',
+    progressionGoal: '开始追求专武专丹和基础灵兽协助，首通后要让炼丹、锻炉和弟子出征一起转起来。',
+    rewardProfile: {
+      rewardMultiplier: 1.12,
+      firstClearBonus: { spiritCrystal: 16, pills: 18, beastShard: 1 },
+      guaranteedDrops: [{ resourceId: 'spiritCrystal', amount: 10 }],
+    },
+  },
+  'stage-cultivation-2': {
+    enemyPower: 320,
+    reward: { lingStone: 460, iron: 72, pills: 30, talisman: 12, dao: 78 },
+    difficultyLabel: '阵容成型',
+    progressionGoal: '这里开始更吃续航与法系抗压，优先补丹药、符阵和带克制的主力兵种。',
+    rewardProfile: {
+      rewardMultiplier: 1.15,
+      firstClearBonus: { spiritCrystal: 22, pills: 20, talisman: 14, discipleShard: 10 },
+      guaranteedDrops: [{ resourceId: 'pills', amount: 10 }],
+    },
+  },
+  'stage-cultivation-3': {
+    enemyPower: 412,
+    reward: { lingStone: 540, iron: 84, talisman: 26, spiritCrystal: 18, dao: 96 },
+    difficultyLabel: '中期分水岭',
+    progressionGoal: '后排火力和兵种克制会明显影响推进速度，建议先把推荐阵型和专武适配补到位。',
+    rewardProfile: {
+      rewardMultiplier: 1.18,
+      firstClearBonus: { spiritCrystal: 28, talisman: 18, beastShard: 1, discipleShard: 12 },
+      guaranteedDrops: [{ resourceId: 'spiritCrystal', amount: 12 }],
+    },
+  },
+  'stage-ancient-1': {
+    enemyPower: 520,
+    reward: { lingStone: 640, iron: 96, spiritCrystal: 34, pills: 22, dao: 118 },
+    difficultyLabel: '磨阵试炼',
+    progressionGoal: '从这里开始要把弟子、灵兽、炼丹和锻造一起拉动，先补齐联动掉落线再推进会更稳。',
+    rewardProfile: {
+      rewardMultiplier: 1.18,
+      firstClearBonus: { beastShard: 1, spiritCrystal: 24, pills: 20, seekImmortalToken: 1 },
+      guaranteedDrops: [{ resourceId: 'spiritCrystal', amount: 14 }],
+    },
+  },
+  'stage-ancient-2': {
+    enemyPower: 690,
+    reward: { lingStone: 760, iron: 118, spiritCrystal: 46, talisman: 24, dao: 145 },
+    difficultyLabel: '长线门槛',
+    progressionGoal: '从这关开始会频繁卡进度，推荐反复刷联动材料，做专武专丹并把灵兽羁绊补高后再突破。',
+    rewardProfile: {
+      rewardMultiplier: 1.22,
+      firstClearBonus: { beastShard: 2, spiritCrystal: 30, talisman: 20, discipleShard: 18 },
+      guaranteedDrops: [{ resourceId: 'spiritCrystal', amount: 18 }],
+      bonusLootTable: [{ resourceId: 'pills', amount: 18, chance: 0.42 }],
+    },
+  },
+  'stage-ancient-3': {
+    enemyPower: 900,
+    reward: { lingStone: 920, iron: 142, spiritCrystal: 62, talisman: 30, dao: 185 },
+    difficultyLabel: '高压精英',
+    progressionGoal: '需要完整的兵种克制和战备适配，建议至少准备两套主力思路轮换刷取突破材料。',
+    rewardProfile: {
+      rewardMultiplier: 1.26,
+      firstClearBonus: { beastShard: 3, spiritCrystal: 36, talisman: 24 },
+      guaranteedDrops: [{ resourceId: 'spiritCrystal', amount: 12 }, { resourceId: 'talisman', amount: 12 }],
+      bonusLootTable: [{ resourceId: 'pills', amount: 20, chance: 0.45 }],
+    },
+  },
+  'stage-celestial-1': {
+    enemyPower: 1180,
+    reward: { lingStone: 1180, iron: 180, pills: 56, spiritCrystal: 86, talisman: 32, dao: 230 },
+    difficultyLabel: '仙门壁垒',
+    progressionGoal: '这是后期长期目标，想稳定通关需要反复经营灵兽、弟子、工坊与兵种克制，持续拉高军势。',
+    rewardProfile: {
+      rewardMultiplier: 1.3,
+      firstClearBonus: { beastShard: 3, pills: 48, spiritCrystal: 26, seekImmortalToken: 1 },
+      guaranteedDrops: [{ resourceId: 'pills', amount: 28 }, { resourceId: 'spiritCrystal', amount: 16 }],
+      bonusLootTable: [{ resourceId: 'spiritCrystal', amount: 24, chance: 0.5 }],
+    },
+  },
+  'stage-celestial-2': {
+    enemyPower: 1520,
+    reward: { lingStone: 1460, talisman: 82, spiritCrystal: 112, pills: 44, dao: 288 },
+    difficultyLabel: '终局追求',
+    progressionGoal: '终盘会要求多轮长线养成。若一时推不过，就先刷前序高收益关卡，把灵兽羁绊、弟子招募和锻丹锻器全部堆满。',
+    rewardProfile: {
+      rewardMultiplier: 1.36,
+      firstClearBonus: { beastShard: 4, spiritCrystal: 52, dao: 120, tianmingSeal: 1 },
+      guaranteedDrops: [{ resourceId: 'spiritCrystal', amount: 24 }, { resourceId: 'pills', amount: 20 }],
+      bonusLootTable: [{ resourceId: 'spiritCrystal', amount: 36, chance: 0.72 }, { resourceId: 'pills', amount: 36, chance: 0.55 }],
+    },
+  },
 };
 
-export const stageDefinitions = rawStageDefinitions.map((stage) => ({
-  ...stage,
-  battlePacing: {
-    ...(stageBattlePacingProfiles[stage.id] ?? {}),
-    ...(stage.battlePacing ?? {}),
-  },
-}));
+const stageBattlePacingProfiles = {
+  'stage-mortal-1': { maxRounds: 7, playerHpMultiplier: 9.2, enemyHpMultiplier: 11.6, globalDamageMultiplier: 0.72 },
+  'stage-mortal-2': { maxRounds: 8, playerHpMultiplier: 9.4, enemyHpMultiplier: 12.2, globalDamageMultiplier: 0.7 },
+  'stage-mortal-3': { maxRounds: 8, playerHpMultiplier: 9.5, enemyHpMultiplier: 13.1, globalDamageMultiplier: 0.68 },
+  'stage-cultivation-1': { maxRounds: 9, playerHpMultiplier: 9.7, enemyHpMultiplier: 14.2, globalDamageMultiplier: 0.65 },
+  'stage-cultivation-2': { maxRounds: 10, playerHpMultiplier: 9.8, enemyHpMultiplier: 15.6, globalDamageMultiplier: 0.61 },
+  'stage-cultivation-3': { maxRounds: 10, playerHpMultiplier: 9.95, enemyHpMultiplier: 16.8, globalDamageMultiplier: 0.58 },
+  'stage-ancient-1': { maxRounds: 11, playerHpMultiplier: 10.05, enemyHpMultiplier: 18.1, globalDamageMultiplier: 0.54 },
+  'stage-ancient-2': { maxRounds: 12, playerHpMultiplier: 10.15, enemyHpMultiplier: 20, globalDamageMultiplier: 0.5 },
+  'stage-ancient-3': { maxRounds: 13, playerHpMultiplier: 10.25, enemyHpMultiplier: 22, globalDamageMultiplier: 0.46 },
+  'stage-celestial-1': { maxRounds: 14, playerHpMultiplier: 10.35, enemyHpMultiplier: 24.2, globalDamageMultiplier: 0.42 },
+  'stage-celestial-2': { maxRounds: 15, playerHpMultiplier: 10.45, enemyHpMultiplier: 27.2, globalDamageMultiplier: 0.39 },
+};
+
+function mergeRewardProfile(baseRewardProfile = {}, overrideRewardProfile = {}) {
+  return {
+    ...baseRewardProfile,
+    ...overrideRewardProfile,
+    firstClearBonus: {
+      ...(baseRewardProfile.firstClearBonus ?? {}),
+      ...(overrideRewardProfile.firstClearBonus ?? {}),
+    },
+    guaranteedDrops: [
+      ...(baseRewardProfile.guaranteedDrops ?? []),
+      ...(overrideRewardProfile.guaranteedDrops ?? []),
+    ],
+    bonusLootTable: [
+      ...(baseRewardProfile.bonusLootTable ?? []),
+      ...(overrideRewardProfile.bonusLootTable ?? []),
+    ],
+  };
+}
+
+export const stageDefinitions = rawStageDefinitions.map((stage) => {
+  const progressionProfile = stageProgressionProfiles[stage.id] ?? {};
+
+  return {
+    ...stage,
+    ...progressionProfile,
+    reward: {
+      ...(stage.reward ?? {}),
+      ...(progressionProfile.reward ?? {}),
+    },
+    rewardProfile: mergeRewardProfile(stage.rewardProfile ?? {}, progressionProfile.rewardProfile ?? {}),
+    battlePacing: {
+      ...(stageBattlePacingProfiles[stage.id] ?? {}),
+      ...(stage.battlePacing ?? {}),
+      ...(progressionProfile.battlePacing ?? {}),
+    },
+  };
+});
