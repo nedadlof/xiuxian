@@ -23,8 +23,15 @@ const RESONANCE_BONUS_PER_LEVEL = Object.freeze({
   legendary: 0.18,
 });
 
-const RESONANCE_COST_GROWTH = 1.55;
+const RESONANCE_COST_GROWTH = 1.6;
 const LEVEL_BONUS_PER_LEVEL = 0.12;
+const RESONANCE_LEVEL_FACTORS = Object.freeze([
+  0.72,
+  0.92,
+  1.18,
+  1.58,
+  2.18,
+]);
 
 function getSafeResonanceLevel(level) {
   return Math.max(0, Math.min(Number(level) || 0, DISCIPLE_RESONANCE_MAX_LEVEL));
@@ -48,7 +55,9 @@ export function getDiscipleEffectMultiplier(level, resonanceLevel = 0, rarity = 
 export function getDiscipleResonanceCost(rarity, currentLevel = 0) {
   const safeRarity = getResonanceRarity(rarity);
   const safeLevel = getSafeResonanceLevel(currentLevel);
-  const factor = RESONANCE_COST_GROWTH ** safeLevel;
+  const factor = RESONANCE_LEVEL_FACTORS[safeLevel]
+    ?? (RESONANCE_LEVEL_FACTORS[RESONANCE_LEVEL_FACTORS.length - 1]
+      * (RESONANCE_COST_GROWTH ** Math.max(safeLevel - (RESONANCE_LEVEL_FACTORS.length - 1), 0)));
   const cost = {};
 
   for (const [resourceId, amount] of Object.entries(RESONANCE_BASE_COSTS[safeRarity] ?? {})) {

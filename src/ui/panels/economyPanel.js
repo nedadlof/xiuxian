@@ -105,6 +105,24 @@ function renderResonanceCards(resonances = [], getResourceLabel) {
   `).join('');
 }
 
+function renderProgressionAdviceCard(advice, formatNumber, getResourceLabel) {
+  if (!advice) {
+    return '';
+  }
+
+  return `
+    <section class="panel">
+      <div class="panel-title"><h3>推进建议</h3><span class="tag">${advice.tag ?? '当前最赚'}</span></div>
+      <div class="card">
+        <div class="muted">${advice.summary ?? '先按当前建议推进。'}</div>
+        ${advice.detail ? `<div class="muted">${advice.detail}</div>` : ''}
+        ${advice.cost ? `<div class="muted">建议投入：${renderWorkshopCost(advice.cost, formatNumber, getResourceLabel)}</div>` : ''}
+        ${advice.reward ? `<div class="muted">预计回收：${renderWorkshopCost(advice.reward, formatNumber, getResourceLabel)}</div>` : ''}
+      </div>
+    </section>
+  `;
+}
+
 export function economyPanel(state, registries, deps = {}) {
   const {
     tooltipAttr,
@@ -124,9 +142,11 @@ export function economyPanel(state, registries, deps = {}) {
     resonance: { activeCount: 0, active: [], upcoming: [], resonances: [] },
     workshop: { orders: [], refreshCost: {}, canRefresh: false, history: [] },
   };
+  const progressionAdvice = manufacturing.progressionAdvice ?? null;
 
   return `
     <div class="grid">
+      ${renderProgressionAdviceCard(progressionAdvice, formatNumber, getResourceLabel)}
       <section class="panel">
         <div class="panel-title"><h3>工人与宿舍</h3><span class="tag">扩张核心</span></div>
         <div class="mini-grid">

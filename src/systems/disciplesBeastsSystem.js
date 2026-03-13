@@ -603,9 +603,11 @@ export function toggleBeastActive({ store, registries }, beastId) {
 }
 
 function getBeastAwakeningCost(level = 0) {
+  const safeLevel = Math.max(0, Number(level) || 0);
+  const factor = [0.72, 0.84, 0.96, 1.28, 1.72][safeLevel] ?? (1.72 * (1.3 ** Math.max(safeLevel - 4, 0)));
   return {
-    beastShard: 2 + level * 2,
-    spiritCrystal: 18 + level * 12,
+    beastShard: Math.max(2, Math.round((2 + safeLevel * 2) * factor)),
+    spiritCrystal: Math.max(12, Math.round((18 + safeLevel * 12) * factor)),
   };
 }
 
@@ -615,7 +617,21 @@ function canAwakenBeast(level = 0) {
 
 function getBeastBondCost(beast, level = 0) {
   const base = beast?.contractCosts ?? { pills: 8, spiritCrystal: 6 };
-  const multiplier = 1 + level * 0.35;
+  const safeLevel = Math.max(0, Number(level) || 0);
+  let multiplier = 0.72;
+
+  for (let step = 0; step < safeLevel; step += 1) {
+    if (step < 2) {
+      multiplier *= 1.18;
+    } else if (step < 5) {
+      multiplier *= 1.24;
+    } else if (step < 8) {
+      multiplier *= 1.34;
+    } else {
+      multiplier *= 1.48;
+    }
+  }
+
   return Object.fromEntries(
     Object.entries(base).map(([resourceId, amount]) => [resourceId, Math.max(1, Math.round(amount * multiplier))]),
   );
@@ -1209,6 +1225,209 @@ function payCost(state, costMap) {
   }
 }
 
+function buildProgressionAdvice({
+  tag = '当前最赚',
+  summary = '',
+  detail = null,
+  cost = null,
+  reward = null,
+} = {}) {
+  return {
+    tag,
+    summary,
+    detail,
+    cost: cost ? { ...cost } : null,
+    reward: reward ? { ...reward } : null,
+  };
+}
+
+function getDiscipleRarityPriority(rarity = 'common') {
+  switch (rarity) {
+    case 'legendary':
+      return 4;
+    case 'epic':
+      return 3;
+    case 'rare':
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+function sortDiscipleProgressionPriority(left, right) {
+  return (
+    (getDiscipleRarityPriority(right?.rarity) - getDiscipleRarityPriority(left?.rarity))
+    || ((right?.effectMultiplier ?? 1) - (left?.effectMultiplier ?? 1))
+    || ((left?.level ?? 1) - (right?.level ?? 1))
+    || ((left?.resonanceLevel ?? 0) - (right?.resonanceLevel ?? 0))
+    || (left?.id ?? '').localeCompare(right?.id ?? '')
+  );
+}
+
+function buildDisciplesProgressionAdvice(state, disciples, recruitPool = {}, expedition = {}) {
+  const owned = disciples.filter((disciple) => disciple.owned);
+  const sortedOwned = [...owned].sort(sortDiscipleProgressionPriority);
+  const coreDisciple = sortedOwned[0] ?? null;
+  const secondCore = sortedOwned.find((disciple) => disciple.id !== coreDisciple?.id) ?? null;
+  const advancedToken = recruitPool.tokens?.find((token) => token.resourceId === 'seekImmortalToken') ?? null;
+  const mainBannerName = recruitPool.activeBanner?.name ?? '高级招募';
+
+  if (!owned.length) {
+    return buildProgressionAdvice({
+      tag: '招募起步',
+      summary: '先用普通招募补进第一批弟子，前期抽卡与培养都更便宜，能立刻启动驻守与出征成长。',
+      detail: `当前已有 ${recruitPool.availableCount ?? 0} 名候选可入门，先凑出基础班底最稳。`,
+      cost: recruitPool.modes?.standard?.cost ?? getRecruitModeCost('standard'),
+    });
+  }
+
+  if (coreDisciple?.canTrain && (coreDisciple.level ?? 1) < 3) {
+    return buildProgressionAdvice({
+      tag: '主力速成',
+      summary: `先把 ${coreDisciple.name} 拉到 Lv.3，前几级培养收益最高，能立刻放大驻守和出征倍率。`,
+      detail: `当前主力倍率 x${(coreDisciple.effectMultiplier ?? 1).toFixed(2)}，前期先做出一个能带队的核心最划算。`,
+      cost: coreDisciple.trainingCost,
+    });
+  }
+
+  if (owned.length < 3) {
+    return buildProgressionAdvice({
+      tag: '补齐阵容',
+      summary: '尽快补满 3 名弟子，先把出征和驻守位撑起来，挂机收益会更稳定。',
+      detail: `${recruitPool.recruitableCount ?? 0} 名候选尚未收入门墙，普通招募是当前最平滑的补员方式。`,
+      cost: recruitPool.modes?.standard?.cost ?? getRecruitModeCost('standard'),
+    });
+  }
+
+  if (secondCore?.canTrain && owned.filter((disciple) => (disciple.level ?? 1) >= 4).length < 2) {
+    return buildProgressionAdvice({
+      tag: '双核成型',
+      summary: `把 ${secondCore.name} 也补到 Lv.4 左右，前中期双主力的体验会比堆单核更顺。`,
+      detail: `第二名高品质弟子成型后，出征队和驻守位都能更快吃到成长红利。`,
+      cost: secondCore.trainingCost,
+    });
+  }
+
+  const resonanceTarget = sortedOwned.find((disciple) => disciple.canAdvanceResonance) ?? null;
+  if (resonanceTarget && (resonanceTarget.resonanceLevel ?? 0) < 2) {
+    return buildProgressionAdvice({
+      tag: '共鸣爆发',
+      summary: `优先突破 ${resonanceTarget.name} 的前两阶命魂共鸣，这两阶现在更容易做出来，收益也最直接。`,
+      detail: `当前共鸣 ${resonanceTarget.resonanceLevel ?? 0}/5，突破后主力倍率可提升到 x${(resonanceTarget.nextEffectMultiplier ?? resonanceTarget.effectMultiplier ?? 1).toFixed(2)}。`,
+      cost: resonanceTarget.resonanceCost,
+    });
+  }
+
+  if ((expedition.members?.length ?? 0) < Math.min(3, owned.length)) {
+    return buildProgressionAdvice({
+      tag: '出征编成',
+      summary: '把 1 名主将和 2 名副将补齐后，弟子体系的出征联动才会完全跑起来。',
+      detail: '先用高等级主力领队，再补两名副将凑联动，能更稳定吃满战斗和掉落收益。',
+    });
+  }
+
+  if ((recruitPool.recruitableCount ?? 0) > 0) {
+    return buildProgressionAdvice({
+      tag: '冲刺高品',
+      summary: `接下来适合围绕 ${mainBannerName} 补高品质弟子，开始为后期共鸣和阵营联动做储备。`,
+      detail: advancedToken?.owned
+        ? `你手里已有 ${advancedToken.owned} 枚寻仙令，可以直接冲一轮高级招募。`
+        : '先攒或购入几枚寻仙令，后面的高品弟子会显著抬高主力上限。',
+      cost: advancedToken?.purchaseCost ?? recruitPool.modes?.advanced?.cost ?? null,
+    });
+  }
+
+  return buildProgressionAdvice({
+    tag: '碎片积累',
+    summary: '继续抽重复弟子攒命魂碎片，后两阶共鸣会明显拉开主力的上限差距。',
+    detail: `当前最值得长期投入的弟子是 ${coreDisciple?.name ?? '主力弟子'}，先围绕他持续放大倍率即可。`,
+  });
+}
+
+function buildBeastProgressionAdvice(menagerie = {}) {
+  const beasts = menagerie.beasts ?? [];
+  const unlockedBeasts = beasts.filter((beast) => beast.unlocked);
+  const featuredBeast = menagerie.featuredBeast ?? null;
+  const expedition = menagerie.expedition ?? {};
+  const collection = menagerie.collection ?? {};
+  const nextRelicRoute = collection.routes?.find((route) => !route.completed && route.nextRelic) ?? null;
+  const preferredRoute = expedition.routes?.find((route) => route.id === nextRelicRoute?.routeId && route.canStart)
+    ?? expedition.routes?.find((route) => route.canStart)
+    ?? null;
+
+  if (!unlockedBeasts.length) {
+    return buildProgressionAdvice({
+      tag: '解锁灵兽',
+      summary: '先继续推进战斗，拿到第一批灵兽后，兽阵和巡游会一起打开新的成长出口。',
+      detail: '灵兽后续会同时影响战斗、掉落、图鉴和资源回流，是中期很重要的一条线。',
+    });
+  }
+
+  if (menagerie.recommendedLineup && !menagerie.recommendedLineup.sameAsActive) {
+    return buildProgressionAdvice({
+      tag: '免费换阵',
+      summary: '先套用推荐兽阵，这是零成本的即时提升，通常比硬抬单只灵兽更赚。',
+      detail: `推荐阵列：${menagerie.recommendedLineup.beasts?.map((beast) => beast.name).join('、') ?? '当前推荐阵列'}。`,
+    });
+  }
+
+  if (featuredBeast?.canAwaken && (featuredBeast.awakeningLevel ?? 0) < 1) {
+    return buildProgressionAdvice({
+      tag: '先开觉醒',
+      summary: `优先给 ${featuredBeast.name} 做到 1 阶觉醒，前一阶最便宜，也最容易马上看到战力变化。`,
+      detail: `当前它对关卡的契合度为 ${featuredBeast.fitScore ?? 0}，先扶正一只主力灵兽收益最高。`,
+      cost: featuredBeast.awakeningCost,
+    });
+  }
+
+  if (featuredBeast?.canTemper && (featuredBeast.bondLevel ?? 0) < 3) {
+    return buildProgressionAdvice({
+      tag: '兽契三阶前',
+      summary: `把 ${featuredBeast.name} 的兽契先补到 3 阶以内，这一段成本更低，联动增益最明显。`,
+      detail: '先把主力灵兽做出基础契约深度，再考虑追后面的高阶养成会更顺手。',
+      cost: featuredBeast.bondCost,
+    });
+  }
+
+  if (expedition.active?.eventState?.pendingEvent) {
+    return buildProgressionAdvice({
+      tag: '处理奇遇',
+      summary: `当前巡游中遇到了 ${expedition.active.eventState.pendingEvent.name}，先完成抉择才能继续收菜。`,
+      detail: '巡游奇遇现在会联动资源、事务点和图鉴进度，尽量不要让它一直卡着。',
+    });
+  }
+
+  if (expedition.active?.completed && !expedition.active?.eventState?.pendingEvent) {
+    return buildProgressionAdvice({
+      tag: '收取巡游',
+      summary: `先收下 ${expedition.active.routeName} 的巡游战利品，把这波资源和图鉴进度落袋。`,
+      detail: `本次由 ${expedition.active.beastName} 带回 ${expedition.active.qualityLabel} 收获，收取后就能继续派下一轮。`,
+      reward: expedition.active.rewardMap,
+    });
+  }
+
+  if (!expedition.active && preferredRoute) {
+    const remainingInsight = Math.max((nextRelicRoute?.threshold ?? 0) - (nextRelicRoute?.currentInsight ?? 0), 0);
+    return buildProgressionAdvice({
+      tag: '巡游寻宝',
+      summary: `派 ${preferredRoute.recommendedBeast?.name ?? '主力灵兽'} 去 ${preferredRoute.name}，这是当前最稳定的资源与图鉴回流。`,
+      detail: nextRelicRoute
+        ? `这条路再拿 ${remainingInsight} 点见闻，就能解锁 ${nextRelicRoute.nextRelic?.name ?? '下一件异宝'}。`
+        : '先让巡游保持不断档，资源、异宝和后续套装增益都会慢慢滚起来。',
+      reward: preferredRoute.rewardPreview,
+    });
+  }
+
+  return buildProgressionAdvice({
+    tag: '后期抬高',
+    summary: `继续拉高 ${featuredBeast?.name ?? '主力灵兽'} 的觉醒与兽契，后几阶会明显拉开战力和收益差距。`,
+    detail: nextRelicRoute
+      ? `当前最值得追的图鉴路线是 ${nextRelicRoute.routeName}，边补收藏边做高阶养成最不亏。`
+      : '后期灵兽更依赖持续投入，建议围绕一套固定兽阵长期深挖。',
+    cost: featuredBeast?.canAwaken ? featuredBeast.awakeningCost : featuredBeast?.bondCost,
+  });
+}
+
 export function trainDisciple({ store, registries }, discipleId, amount = 1) {
   const safeAmount = Math.max(1, Math.min(Number(amount) || 1, 20));
   let success = false;
@@ -1545,6 +1764,7 @@ export function getDisciplesSnapshot(state, registries) {
     members: expeditionMembers,
     bonds: getExpeditionBondSnapshot(expeditionMembers),
   };
+  disciples.progressionAdvice = buildDisciplesProgressionAdvice(state, disciples, disciples.recruitPool, disciples.expedition);
 
   return disciples;
 }
@@ -1604,7 +1824,7 @@ export function getBeastMenagerieSnapshot(state, registries) {
     routeName: getBeastExpeditionDefinition(entry.routeId)?.name ?? entry.routeId,
   }));
 
-  return {
+  const snapshot = {
     beasts,
     featuredBeast,
     activeLineup: {
@@ -1625,4 +1845,6 @@ export function getBeastMenagerieSnapshot(state, registries) {
       recentDiscoveries: collectionRecentDiscoveries,
     },
   };
+  snapshot.progressionAdvice = buildBeastProgressionAdvice(snapshot);
+  return snapshot;
 }

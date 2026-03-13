@@ -1,5 +1,5 @@
 const RECRUIT_MODE_COSTS = Object.freeze({
-  standard: { dao: 1200, lingStone: 180, herb: 60 },
+  standard: { dao: 960, lingStone: 132, herb: 42 },
   advanced: { seekImmortalToken: 1 },
   faction: { seekImmortalToken: 1 },
   targeted: { tianmingSeal: 1 },
@@ -10,13 +10,13 @@ const TOKEN_PURCHASES = Object.freeze({
     resourceId: 'seekImmortalToken',
     name: '寻仙令',
     description: '用于高级招募与阵营定向池，适合集中冲击高品弟子与当期 UP 池。',
-    purchaseCost: { dao: 6000, spiritCrystal: 6, lingStone: 260 },
+    purchaseCost: { dao: 4200, spiritCrystal: 4, lingStone: 180 },
   },
   tianmingSeal: {
     resourceId: 'tianmingSeal',
     name: '天命印',
     description: '用于天命直收，可锁定单名候选弟子直接收入门墙。',
-    purchaseCost: { dao: 12000, spiritCrystal: 12, lingStone: 520 },
+    purchaseCost: { dao: 9200, spiritCrystal: 8, lingStone: 380 },
   },
 });
 

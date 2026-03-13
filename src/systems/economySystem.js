@@ -615,6 +615,132 @@ function decorateManufacturingDefinition(definition, registries, branch = 'weapo
   };
 }
 
+function buildManufacturingAdvice({
+  tag = '当前最赚',
+  summary = '',
+  detail = null,
+  cost = null,
+  reward = null,
+} = {}) {
+  return {
+    tag,
+    summary,
+    detail,
+    cost: cost ? { ...cost } : null,
+    reward: reward ? { ...reward } : null,
+  };
+}
+
+function buildManufacturingProgressionAdvice(state, snapshot) {
+  const smithyLevel = Math.max(Number(state.buildings?.smithy?.level) || 0, 0);
+  const alchemyLevel = Math.max(Number(state.buildings?.alchemy?.level) || 0, 0);
+  const forgeTarget = snapshot.arsenal.unlockedBlueprints?.find((entry) => entry.craftable)
+    ?? snapshot.arsenal.unlockedBlueprints?.[0]
+    ?? null;
+  const brewTarget = snapshot.alchemy.unlockedRecipes?.find((entry) => entry.craftable)
+    ?? snapshot.alchemy.unlockedRecipes?.[0]
+    ?? null;
+  const mainWeapon = snapshot.arsenal.activeWeapons?.[0]
+    ?? snapshot.arsenal.inventory?.[0]
+    ?? null;
+  const fulfillableOrder = snapshot.workshop.orders?.find((order) => order.canFulfill) ?? null;
+  const reforgeTarget = snapshot.arsenal.inventory?.find((weapon) => weapon.canReforge && (weapon.qualityRoll ?? 1) < 1.06)
+    ?? snapshot.arsenal.inventory?.find((weapon) => weapon.canReforge)
+    ?? null;
+  const upcomingResonance = snapshot.resonance.upcoming?.[0] ?? null;
+
+  if (smithyLevel <= 0) {
+    return buildManufacturingAdvice({
+      tag: '锻炉起步',
+      summary: '先把铁匠铺开起来，武器是制造线最早、最稳定的战力出口。',
+      detail: '锻出第一件主武后，前两次强化现在更便宜，能马上拉高战斗和挂机收益。',
+    });
+  }
+
+  if (!(snapshot.arsenal.activeWeapons?.length > 0) && forgeTarget) {
+    return buildManufacturingAdvice({
+      tag: '先锻主武',
+      summary: `先做出第一件常备武器，${forgeTarget.name} 会立刻进入镇库并转化为常驻增益。`,
+      detail: forgeTarget.craftable
+        ? '先把主武做出来，再考虑筛词条和洗练，前期回报会更直接。'
+        : '差一点材料也值得先攒出来，主武落地后会马上改善整体推图节奏。',
+      cost: forgeTarget.cost,
+    });
+  }
+
+  if (mainWeapon?.canStrengthen && (mainWeapon.strengthenLevel ?? 0) < 2) {
+    return buildManufacturingAdvice({
+      tag: '主武 +2',
+      summary: `优先把 ${mainWeapon.name} 强化到 +2，前两段强化的性价比最高。`,
+      detail: `当前成色 ${mainWeapon.qualityLabel}，先做出稳定主武，再考虑后面的高阶洗练。`,
+      cost: mainWeapon.strengthenCost,
+    });
+  }
+
+  if (alchemyLevel <= 0) {
+    return buildManufacturingAdvice({
+      tag: '开炉炼丹',
+      summary: '丹房开出来以后，丹药会补上资源和战斗双线增益，制造循环会顺很多。',
+      detail: '武器负责托底，丹药负责补波峰，二者一起跑才有中后期的持续追求。',
+    });
+  }
+
+  if (!(snapshot.alchemy.activeBatches?.length > 0) && brewTarget) {
+    return buildManufacturingAdvice({
+      tag: '炼出首丹',
+      summary: `先炼一批 ${brewTarget.name}，把丹房的主动收益线真正接起来。`,
+      detail: brewTarget.craftable
+        ? '做出第一批成药后，系统会自动选最强批次生效。'
+        : '优先把这张丹方的基础材料补齐，前几批成药的回报会很稳定。',
+      cost: brewTarget.cost,
+    });
+  }
+
+  if (fulfillableOrder) {
+    return buildManufacturingAdvice({
+      tag: '订单回收',
+      summary: `当前有现成工坊订单可交付，先把 ${fulfillableOrder.bestMatchName ?? '成品'} 变成器魂和声望。`,
+      detail: `完成 ${fulfillableOrder.title} 后可继续滚动出下一单，后期成长会更依赖这条回收线。`,
+      reward: {
+        ...(fulfillableOrder.reward ?? {}),
+        affairsCredit: fulfillableOrder.affairsCreditReward ?? 0,
+      },
+    });
+  }
+
+  if (reforgeTarget) {
+    return buildManufacturingAdvice({
+      tag: '洗练追词',
+      summary: `用洗练继续优化 ${reforgeTarget.name}，中后期强度差距会越来越依赖词条和倾向。`,
+      detail: `当前方案：${reforgeTarget.reforgePlanSummary}。现在前几次洗练比之前更平滑，后面才会明显抬价。`,
+      cost: reforgeTarget.reforgeCost,
+    });
+  }
+
+  if (snapshot.workshop.canRefresh) {
+    return buildManufacturingAdvice({
+      tag: '刷新新单',
+      summary: '当前成品和订单不够契合时，直接换一轮工坊单会更省时间。',
+      detail: '刷新前期更便宜，但后面会随着声望显著涨价，尽量在能交单时先交。',
+      cost: snapshot.workshop.refreshCost,
+    });
+  }
+
+  if (upcomingResonance) {
+    return buildManufacturingAdvice({
+      tag: '共鸣成型',
+      summary: `接下来围绕 ${upcomingResonance.name} 这套兵丹共鸣去补装备和丹药。`,
+      detail: upcomingResonance.progressSummary ?? upcomingResonance.requirementSummary ?? '继续补齐共鸣条件。',
+    });
+  }
+
+  return buildManufacturingAdvice({
+    tag: '后期深挖',
+    summary: '继续追高品质成品并滚动交付订单，制造线后期会成为最主要的长期目标之一。',
+    detail: '越往后越需要同时兼顾强化、洗练、共鸣和订单回收，才能稳定打开新提升。',
+  });
+}
+
 export function getManufacturingSnapshot(state, registries) {
   const snapshot = getCraftingSnapshot(state);
   const unlockedBlueprints = snapshot.arsenal.blueprints
@@ -630,7 +756,7 @@ export function getManufacturingSnapshot(state, registries) {
     .filter((definition) => !definition.unlocked)
     .map((definition) => decorateManufacturingDefinition(definition, registries, 'pill'));
 
-  return {
+  const manufacturing = {
     arsenal: {
       ...snapshot.arsenal,
       unlockedBlueprints,
@@ -648,6 +774,8 @@ export function getManufacturingSnapshot(state, registries) {
       ...snapshot.workshop,
     },
   };
+  manufacturing.progressionAdvice = buildManufacturingProgressionAdvice(state, manufacturing);
+  return manufacturing;
 }
 
 export function forgeWeapon({ store }, blueprintId) {

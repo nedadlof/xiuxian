@@ -179,9 +179,26 @@ function renderRelicDiscoveries(discoveries = []) {
   `).join('');
 }
 
+function renderProgressionAdviceCard(advice, getResourceLabel) {
+  if (!advice) {
+    return '';
+  }
+
+  return `
+    <div class="card">
+      <div class="card-title"><strong>推进建议</strong><span class="tag">${advice.tag ?? '当前最赚'}</span></div>
+      <div class="muted">${advice.summary ?? '先按当前建议推进。'}</div>
+      ${advice.detail ? `<div class="muted">${advice.detail}</div>` : ''}
+      ${advice.cost ? `<div class="muted">建议投入：${renderResourceMap(advice.cost, getResourceLabel)}</div>` : ''}
+      ${advice.reward ? `<div class="muted">预计收获：${renderResourceMap(advice.reward, getResourceLabel)}</div>` : ''}
+    </div>
+  `;
+}
+
 export function beastsPanel(state, registries, deps = {}) {
   const { tooltipAttr, formatCostSummary, getResourceLabel } = deps;
   const menagerie = getBeastMenagerieSnapshot(state, registries);
+  const progressionAdvice = menagerie.progressionAdvice ?? null;
   const beasts = menagerie.beasts;
   const currentStage = registries.stages.get(state.war?.currentStageId);
   const featuredBeast = menagerie.featuredBeast;
@@ -201,6 +218,7 @@ export function beastsPanel(state, registries, deps = {}) {
   return `
     <div class="grid">
       <section class="panel">
+        ${renderProgressionAdviceCard(progressionAdvice, getResourceLabel)}
         <div class="panel-title"><h3>万象森罗录</h3><span class="tag">激活 ${state.beasts.activeIds.length}/3</span></div>
         <div class="card">
           <div class="card-title"><strong>灵兽养成</strong><span class="tag">灵兽碎片 ${state.resources?.beastShard ?? 0}</span></div>

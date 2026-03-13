@@ -3931,3 +3931,86 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 16/16`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-13 弟子灵兽锻造成长曲线分段化与推进建议
+
+- Main goal:
+  - extend the “early easy, late aspirational” pacing from war into three long-term growth loops:
+    - disciples
+    - beasts
+    - crafting / workshop
+  - reduce early friction so players can feel continuous upgrades quickly
+  - make late investment much steeper so the back half of progression keeps a clear chase target
+
+- Disciple pacing update:
+  - upgraded `src/data/discipleTraining.js`
+  - disciple training costs now use a front-light / back-heavy tiered curve instead of a flat exponent
+  - early cultivation is noticeably cheaper through the first few levels
+  - higher disciple levels now rise faster than before and act as a longer-term sink
+  - upgraded `src/data/discipleAdvancement.js`
+  - early resonance breakthroughs are cheaper
+  - late resonance steps now spike harder
+  - upgraded `src/data/discipleRecruitment.js`
+  - standard recruitment and token purchases were eased so the disciple loop starts faster
+
+- Beast pacing update:
+  - upgraded `src/systems/disciplesBeastsSystem.js`
+  - beast awakening costs now use a staged curve:
+    - first awakenings are cheaper and easier to slot into early progression
+    - late awakenings ramp much harder
+  - beast bond / temper costs now scale in tiers instead of a flat linear multiplier
+  - this makes:
+    - first awaken + early contract levels feel accessible
+    - later beast investment become a real mid/late goal
+
+- Crafting pacing update:
+  - upgraded `src/systems/shared/crafting.js`
+  - weapon strengthen costs now follow a staged multiplier:
+    - early `+1 / +2` are much cheaper
+    - later strengthen levels get more expensive than the old curve
+  - weapon reforge costs now also use a staged ramp:
+    - first few rerolls are more forgiving
+    - repeated late rerolls become much more expensive
+  - workshop refresh costs are cheaper early and much steeper at higher reputation
+  - workshop order rewards were raised and now scale better into higher reputation / workshop depth
+
+- Snapshot / interface update:
+  - upgraded `src/systems/disciplesBeastsSystem.js`
+  - upgraded `src/systems/economySystem.js`
+  - new snapshot-facing interface fields:
+    - `disciples.progressionAdvice`
+    - `beastMenagerie.progressionAdvice`
+    - `manufacturing.progressionAdvice`
+  - these advice payloads are intentionally simple:
+    - `tag`
+    - `summary`
+    - `detail`
+    - optional `cost`
+    - optional `reward`
+  - this keeps the UI side lightweight while giving the player a clear “next best step” in each system
+
+- UI update:
+  - upgraded `src/ui/panels/disciplesPanel.js`
+  - upgraded `src/ui/panels/beastsPanel.js`
+  - upgraded `src/ui/panels/economyPanel.js`
+  - each panel now renders a compact `推进建议` card
+  - current advice examples include:
+    - disciple main-carry leveling
+    - early resonance priorities
+    - recommended beast lineup / awakening / expedition flow
+    - first weapon / first pill / strengthen / order-turn-in priorities
+
+- Verified locally:
+  - `node --check src/data/discipleTraining.js`
+  - `node --check src/data/discipleAdvancement.js`
+  - `node --check src/data/discipleRecruitment.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/systems/shared/crafting.js`
+  - `node --check src/systems/economySystem.js`
+  - `node --check src/ui/panels/disciplesPanel.js`
+  - `node --check src/ui/panels/beastsPanel.js`
+  - `node --check src/ui/panels/economyPanel.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 90`
+  - result:
+    - `SMOKE PASS 16/16`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression

@@ -560,6 +560,44 @@ export function getUnlockedPillRecipes(state) {
     .sort(sortDefinitions);
 }
 
+function getStrengthenCostMultiplier(level = 0) {
+  const safeLevel = Math.max(Number(level) || 0, 0);
+  let multiplier = 0.72;
+
+  for (let step = 0; step < safeLevel; step += 1) {
+    if (step < 2) {
+      multiplier *= 1.18;
+    } else if (step < 5) {
+      multiplier *= 1.24;
+    } else if (step < 8) {
+      multiplier *= 1.32;
+    } else {
+      multiplier *= 1.42;
+    }
+  }
+
+  return multiplier;
+}
+
+function getReforgeCostMultiplier(reforgeCount = 0) {
+  const safeCount = Math.max(Number(reforgeCount) || 0, 0);
+  let multiplier = 0.78;
+
+  for (let step = 0; step < safeCount; step += 1) {
+    if (step < 2) {
+      multiplier *= 1.15;
+    } else if (step < 5) {
+      multiplier *= 1.22;
+    } else if (step < 8) {
+      multiplier *= 1.3;
+    } else {
+      multiplier *= 1.4;
+    }
+  }
+
+  return multiplier;
+}
+
 export function getWeaponStrengthenCost(instance = {}) {
   const blueprint = getWeaponBlueprint(instance.blueprintId);
   if (!blueprint) {
@@ -568,7 +606,7 @@ export function getWeaponStrengthenCost(instance = {}) {
 
   const level = Math.max(Number(instance.strengthenLevel) || 0, 0);
   const rank = getRarityRank(blueprint.rarity);
-  const multiplier = 1.2 ** level;
+  const multiplier = getStrengthenCostMultiplier(level);
   const cost = {
     weaponEssence: Math.round((8 + rank * 5 + (instance.affixes?.length ?? 0) * 4) * multiplier),
     lingStone: Math.round(((blueprint.cost.lingStone ?? 60) * 0.42 + rank * 18) * multiplier),
@@ -578,7 +616,7 @@ export function getWeaponStrengthenCost(instance = {}) {
     pills: Math.round(((blueprint.cost.pills ?? 0) * 0.32) * multiplier),
     talisman: Math.round(((blueprint.cost.talisman ?? 0) * 0.28) * multiplier),
     spiritCrystal: Math.round(((blueprint.cost.spiritCrystal ?? 0) * 0.3 + rank * 4) * multiplier),
-    affairsCredit: level >= 4 ? Math.round((rank * 2 + level) * multiplier * 0.4) : 0,
+    affairsCredit: level >= 5 ? Math.round((rank * 2 + level) * multiplier * 0.48) : 0,
   };
 
   return Object.fromEntries(Object.entries(cost).filter(([, amount]) => amount > 0));
@@ -644,7 +682,7 @@ export function getWeaponReforgeCost(instance = {}, plan = {}) {
   const reforgeCount = Math.max(Number(instance.reforgeCount) || 0, 0);
   const strengthenLevel = Math.max(Number(instance.strengthenLevel) || 0, 0);
   const planMultiplier = 1 + (plan.lockedAffixId ? 0.28 : 0) + (plan.focusType ? 0.22 : 0);
-  const multiplier = (1.16 ** reforgeCount) * planMultiplier;
+  const multiplier = getReforgeCostMultiplier(reforgeCount) * planMultiplier;
   const cost = {
     weaponEssence: Math.round((10 + rank * 5 + (instance.affixes?.length ?? 0) * 4 + strengthenLevel * 2) * multiplier),
     lingStone: Math.round(((blueprint.cost.lingStone ?? 60) * 0.28 + rank * 18) * multiplier),
@@ -653,7 +691,7 @@ export function getWeaponReforgeCost(instance = {}, plan = {}) {
     pills: Math.round(((blueprint.cost.pills ?? 0) * 0.22) * multiplier),
     talisman: Math.round(((blueprint.cost.talisman ?? 0) * 0.24 + Math.max(rank - 1, 0) * 3) * multiplier),
     spiritCrystal: Math.round(((blueprint.cost.spiritCrystal ?? 0) * 0.26 + rank * 4) * multiplier),
-    affairsCredit: strengthenLevel >= 3 ? Math.round((rank + strengthenLevel) * 0.5 * multiplier) : 0,
+    affairsCredit: strengthenLevel >= 4 ? Math.round((rank + strengthenLevel) * 0.56 * multiplier) : 0,
   };
 
   return Object.fromEntries(Object.entries(cost).filter(([, amount]) => amount > 0));
@@ -810,18 +848,24 @@ function buildWorkshopReward(kind, tier, state) {
   const depth = kind === 'weapon'
     ? Math.max(Number(state.buildings?.smithy?.level) || 0, 0)
     : Math.max(Number(state.buildings?.alchemy?.level) || 0, 0);
-  const base = 160 + tier * 90 + depth * 30 + Math.floor(reputation * 0.8);
+  const earlyReputation = Math.min(reputation, 120);
+  const lateReputation = Math.max(reputation - 120, 0);
+  const base = 170
+    + tier * 88
+    + depth * 34
+    + Math.floor(earlyReputation * 0.78)
+    + Math.floor(lateReputation * 1.24);
 
   if (kind === 'weapon') {
     return {
       reward: {
-        weaponEssence: 8 + tier * 4 + depth * 2,
+        weaponEssence: 10 + tier * 4 + depth * 2 + Math.floor(lateReputation / 55),
         lingStone: Math.round(base * 1.35),
         dao: Math.round(base * 0.95),
-        spiritCrystal: Math.round(6 + tier * 4 + depth * 2),
+        spiritCrystal: Math.round(7 + tier * 4 + depth * 2 + Math.floor(lateReputation / 60)),
       },
-      reputationReward: 6 + tier * 4 + Math.floor(depth / 2),
-      affairsCreditReward: 3 + tier * 2,
+      reputationReward: 7 + tier * 4 + Math.floor(depth / 2) + Math.floor(lateReputation / 70),
+      affairsCreditReward: 3 + tier * 2 + (depth >= 4 ? 1 : 0),
     };
   }
 
@@ -829,11 +873,11 @@ function buildWorkshopReward(kind, tier, state) {
     reward: {
       lingStone: Math.round(base * 1.15),
       dao: Math.round(base * 1.05),
-      talisman: Math.round(6 + tier * 4 + depth * 2),
-      spiritCrystal: Math.round(4 + tier * 3 + depth * 2),
+      talisman: Math.round(7 + tier * 4 + depth * 2 + Math.floor(lateReputation / 65)),
+      spiritCrystal: Math.round(5 + tier * 3 + depth * 2 + Math.floor(lateReputation / 75)),
     },
-    reputationReward: 6 + tier * 4 + Math.floor(depth / 2),
-    affairsCreditReward: 4 + tier * 2,
+    reputationReward: 7 + tier * 4 + Math.floor(depth / 2) + Math.floor(lateReputation / 70),
+    affairsCreditReward: 4 + tier * 2 + (depth >= 4 ? 1 : 0),
   };
 }
 
@@ -931,9 +975,11 @@ export function ensureWorkshopOrdersInState(state, now = Date.now()) {
 export function getWorkshopOrderRefreshCost(state) {
   ensureCraftingState(state);
   const reputation = Math.max(Number(state.commissions?.reputation) || 0, 0);
+  const earlyReputation = Math.min(reputation, 120);
+  const lateReputation = Math.max(reputation - 120, 0);
   return {
-    affairsCredit: 4 + Math.floor(reputation / 40),
-    dao: 240 + Math.floor(reputation * 1.6),
+    affairsCredit: 2 + Math.floor(earlyReputation / 60) + Math.floor(lateReputation / 15),
+    dao: 160 + Math.floor(earlyReputation * 1.15) + Math.floor(lateReputation * 2.9),
   };
 }
 

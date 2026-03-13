@@ -26,6 +26,21 @@ function renderResonanceSummary(disciple) {
   return `命魂共鸣 ${disciple.resonanceLevel ?? 0}/5 · ${disciple.resonanceTitle ?? '凡躯'}`;
 }
 
+function renderProgressionAdviceCard(advice, formatCostSummary) {
+  if (!advice) {
+    return '';
+  }
+
+  return `
+    <div class="card">
+      <div class="card-title"><strong>推进建议</strong><span class="tag">${advice.tag ?? '当前最赚'}</span></div>
+      <div class="muted">${advice.summary ?? '先按当前建议推进。'}</div>
+      ${advice.detail ? `<div class="muted">${advice.detail}</div>` : ''}
+      ${advice.cost ? `<div class="muted">建议投入：${formatCostSummary(advice.cost)}</div>` : ''}
+    </div>
+  `;
+}
+
 function getFactionLabel(factionOptions, factionId) {
   return factionOptions.find((item) => item.id === factionId)?.label ?? factionId ?? '散修';
 }
@@ -111,6 +126,7 @@ export function disciplesPanel(state, registries, deps = {}) {
   } = deps;
 
   const disciples = getDisciplesSnapshot(state, registries).sort((left, right) => sortByRarity(getRarityRank, left, right));
+  const progressionAdvice = disciples.progressionAdvice ?? null;
   const recruitPool = disciples.recruitPool ?? {
     focusId: null,
     availableCount: 0,
@@ -153,6 +169,7 @@ export function disciplesPanel(state, registries, deps = {}) {
   return `
     <div class="grid">
       <section class="panel">
+        ${renderProgressionAdviceCard(progressionAdvice, formatCostSummary)}
         <div class="panel-title"><h3>仙缘招募</h3><span class="tag">已解锁 ${recruitPool.availableCount} 位</span></div>
         <div class="grid">
           <div class="card">
