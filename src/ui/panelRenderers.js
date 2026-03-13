@@ -1,12 +1,12 @@
 import { overviewPanel } from './panels/overviewPanel.js?v=20260313-ui-refresh';
 import { economyPanel } from './panels/economyPanel.js?v=20260313-ui-refresh';
 import { warehousePanel } from './panels/warehousePanel.js?v=20260313-ui-refresh';
-import { scripturePanel } from './panels/scripturePanel.js?v=20260313-ui-refresh-2';
-import { logsPanel } from './panels/logsPanel.js?v=20260313-ui-refresh-2';
+import { scripturePanel } from './panels/scripturePanel.js?v=20260313-ui-refresh-3';
+import { logsPanel } from './panels/logsPanel.js?v=20260313-ui-refresh-3';
 import { beastsPanel } from './panels/beastsPanel.js?v=20260313-ui-refresh';
 import { disciplesPanel } from './panels/disciplesPanel.js?v=20260313-ui-refresh';
 import { barracksPanel } from './panels/barracksPanel.js?v=20260313-ui-refresh';
-import { warPanel } from './panels/warPanel.js?v=20260313-ui-refresh';
+import { warPanel } from './panels/warPanel.js?v=20260313-ui-refresh-3';
 import { missionsPanel } from './panels/missionsPanel.js?v=20260313-ui-refresh-2';
 import { sanitizeUiText } from './textSanitizer.js';
 import { APP_TABS } from './tabConfig.js';

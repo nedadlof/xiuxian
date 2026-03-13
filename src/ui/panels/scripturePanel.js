@@ -18,10 +18,14 @@ export function scripturePanel(state, registries, deps = {}) {
   const scriptureWorkers = state.workforce.assignedWorkers.scriptureHall ?? 0;
   const availableCount = nodes.filter((node) => node.canResearch).length;
   const unlockedCount = nodes.filter((node) => node.unlocked).length;
+  const readyNodes = nodes.filter((node) => node.canResearch).slice(0, 3);
+  const lockedPreview = nodes.filter((node) => !node.unlocked && !node.canResearch).slice(0, 4);
+  const recentUnlocked = nodes.filter((node) => node.unlocked).slice(-3).reverse();
+  const nextNode = nodes.find((node) => !node.unlocked);
 
   return `
-    <div class="grid">
-      <section class="panel">
+    <div class="scripture-layout">
+      <section class="panel scripture-side-panel">
         <div class="panel-title"><h3>藏经阁工作</h3><span class="tag">道蕴核心</span></div>
         <div class="mini-grid">
           <div class="card">
@@ -89,6 +93,30 @@ export function scripturePanel(state, registries, deps = {}) {
             </div>
           </div>
         </div>
+        <div class="card scripture-focus-card">
+          <div class="card-title"><strong>当前研修脉络</strong><span class="tag">${availableCount > 0 ? '可立刻推进' : '继续积累'}</span></div>
+          <div class="muted">${readyNodes.length > 0
+            ? `优先参悟 ${readyNodes.map((node) => `《${node.name}》`).join('、')}，能更快把兵道、产业和灵兽联动接起来。`
+            : `当前最近的突破是《${nextNode?.name ?? '后续经卷'}》，先继续积攒道蕴并补齐前置资源。`}</div>
+          ${readyNodes.length > 0 ? `
+            <div class="muted">优先经卷</div>
+            <div class="detail-list">
+              ${readyNodes.map((node) => `<span>${node.name} · ${node.era}</span>`).join('')}
+            </div>
+          ` : ''}
+          ${lockedPreview.length > 0 ? `
+            <div class="muted">后续经卷</div>
+            <div class="detail-list">
+              ${lockedPreview.map((node) => `<span>${node.name} · ${node.era}</span>`).join('')}
+            </div>
+          ` : ''}
+          ${recentUnlocked.length > 0 ? `
+            <div class="muted">已成卷录</div>
+            <div class="detail-list">
+              ${recentUnlocked.map((node) => `<span>${node.name}</span>`).join('')}
+            </div>
+          ` : ''}
+        </div>
         <div class="card" ${tooltipAttr([`当前工人：${scriptureWorkers}`, '增加工人可持续提升道蕴获取效率。'])}>
           <div class="entity-row">
             ${renderEntityThumb({
@@ -109,14 +137,14 @@ export function scripturePanel(state, registries, deps = {}) {
           </div>
         </div>
       </section>
-      <section class="panel">
+      <section class="panel scripture-node-panel">
         <div class="panel-title"><h3>研究节点</h3><span class="tag">可参悟 ${availableCount}</span></div>
-        <div class="log-list">
+        <div class="scripture-node-list">
           ${nodes.map((node) => {
             const buttonLabel = node.unlocked ? '已参悟' : (node.canResearch ? '参悟' : (node.available ? '资源不足' : '前置未满足'));
             const statusLabel = node.unlocked ? '已参悟' : (node.canResearch ? '可参悟' : (node.available ? '资源不足' : '待解锁'));
             return `
-              <div class="log-item" ${tooltipAttr([
+              <div class="card scripture-node-card" ${tooltipAttr([
                 `节点：${node.name}`,
                 `纪元：${node.era}`,
                 `道蕴消耗：${formatNumber(node.daoCost)}`,
@@ -141,6 +169,10 @@ export function scripturePanel(state, registries, deps = {}) {
                   <div class="muted">${node.era} · 道蕴 ${formatNumber(node.daoCost)}</div>
                   <div class="muted">资源消耗：${formatCostSummary(node.resourceCosts)}</div>
                   <div class="muted">${node.blockedByNames?.length ? `前置：${node.blockedByNames.join(' · ')}` : '前置已满足，可继续推进。'}</div>
+                  <div class="detail-list">
+                    <span>${node.unlocked ? '已经收入卷录' : `状态 ${statusLabel}`}</span>
+                    <span>${Object.keys(node.missingCosts ?? {}).length ? `缺 ${formatCostSummary(node.missingCosts)}` : '资源已满足'}</span>
+                  </div>
                 </div>
                 <div class="inline-actions">
                   <button ${node.unlocked || !node.canResearch ? 'disabled' : ''} data-action="research-node" data-id="${node.id}">${buttonLabel}</button>

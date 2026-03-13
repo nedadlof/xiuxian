@@ -1,7 +1,7 @@
 import { getTransientUiFeedback, setTransientUiFeedback } from './transientFeedback.js';
 import { tooltipAttr } from './tooltipAttr.js';
-import { renderAppShell } from './appShellView.js?v=20260313-ui-refresh-2';
-import { APP_TABS, createPanelRenderers } from './panelRenderers.js?v=20260313-ui-refresh-2';
+import { renderAppShell } from './appShellView.js?v=20260313-ui-refresh-3';
+import { APP_TABS, createPanelRenderers } from './panelRenderers.js?v=20260313-ui-refresh-3';
 import { hydrateRenderedUi } from './renderRuntime.js';
 import { getTabContent } from './tabRouter.js?v=20260310-11';
 import { DEFAULT_TAB } from './tabConfig.js';

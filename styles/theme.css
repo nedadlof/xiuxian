@@ -273,6 +273,44 @@ pre {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
+.war-layout,
+.war-columns,
+.war-main-column,
+.war-side-column,
+.war-summary-grid,
+.war-summary-stack,
+.scripture-layout,
+.scripture-node-list {
+  display: grid;
+  gap: 14px;
+}
+
+.war-columns {
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  align-items: start;
+}
+
+.war-summary-grid {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  align-items: start;
+}
+
+.scripture-layout {
+  grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.3fr);
+  align-items: start;
+}
+
+.war-focus-card,
+.scripture-focus-card,
+.scripture-node-card {
+  display: grid;
+  gap: 12px;
+}
+
+.war-stage-grid {
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+}
+
 .panel {
   padding: 18px 20px;
 }
@@ -598,6 +636,12 @@ pre {
 
 @media (max-width: 1100px) {
   .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .war-columns,
+  .war-summary-grid,
+  .scripture-layout {
     grid-template-columns: 1fr;
   }
 }

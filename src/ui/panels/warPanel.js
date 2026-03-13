@@ -106,6 +106,91 @@ function renderStageCard(stage, deps = {}) {
   `;
 }
 
+function renderWarOverviewPanel(currentStage, state, deps = {}) {
+  const {
+    formatNumber,
+    formatCostSummary,
+    getEncounterTypeLabel,
+    defaultAutoStrategy,
+    defaultAutoSpeed,
+    currentBattlePower,
+    currentTargetPower,
+    pressureMeta,
+  } = deps;
+
+  if (!currentStage) {
+    return `
+      <section class="panel war-overview-panel">
+        <div class="panel-title"><h3>战斗总览</h3><span class="tag">简化推演</span></div>
+        <div class="card"><div class="muted">当前还没有可展示的目标关卡，请先从关卡列表中选择一关。</div></div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="panel war-overview-panel">
+      <div class="panel-title"><h3>战斗总览</h3><span class="tag">简化推演</span></div>
+      <div class="war-summary-grid">
+        <div class="card war-focus-card">
+          <div class="entity-row">
+            ${renderEntityThumb({
+              kind: getStageThumbKind(currentStage),
+              title: currentStage.name,
+              subtitle: currentStage.terrain ?? currentStage.world ?? '',
+              rarity: currentStage.cleared ? 'rare' : ((currentStage.difficultyLabel ?? '').includes('精') ? 'epic' : 'common'),
+              badge: currentStage.name,
+              tone: `${currentStage.world ?? ''}/${currentStage.terrain ?? ''}/${currentStage.encounterType ?? ''}`,
+            })}
+            <div class="entity-copy">
+              <div class="card-title">
+                <strong>${currentStage.name}</strong>
+                <span class="tag">${currentStage.current ? '当前目标' : getEncounterTypeLabel(currentStage.encounterType)}</span>
+              </div>
+              <div class="muted">${currentStage.world} · ${currentStage.terrain} · ${currentStage.difficultyLabel ?? '常规推进'}</div>
+              <div class="detail-list">
+                <span>建议军势 ${formatNumber(currentTargetPower)}</span>
+                <span>当前军势 ${formatNumber(currentBattlePower)}</span>
+                <span>推进压强 ${pressureMeta.label}</span>
+              </div>
+              ${rewardLine('基础奖励', currentStage.rewardPreview?.baseReward ?? currentStage.reward, formatCostSummary)}
+              ${rewardLine('首通奖励', currentStage.rewardPreview?.firstClearBonus ?? {}, formatCostSummary)}
+              ${rewardLine('联动掉落', currentStage.rewardPreview?.linkedReward ?? {}, formatCostSummary)}
+              <div class="muted">${currentStage.progressionGoal ?? '优先吃满首通奖励，再把联动掉落滚起来。'}</div>
+            </div>
+          </div>
+          <div class="inline-actions">
+            <button class="secondary" ${currentStage.unlocked ? '' : 'disabled'} data-action="quick-challenge-stage" data-id="${currentStage.id}">${currentStage.cleared ? '再次扫荡' : '一键挑战'}</button>
+            <button class="ghost" data-action="switch-tab" data-tab="barracks">前往兵营整备</button>
+          </div>
+        </div>
+
+        <div class="war-summary-stack">
+          <div class="card">
+            <div class="card-title"><strong>推进节奏</strong><span class="tag">${pressureMeta.label}</span></div>
+            <div class="muted">${pressureMeta.summary}</div>
+            <div class="detail-list">
+              <span>已通关 ${state.war.clearedStages.length} 关</span>
+              <span>${currentStage.cleared ? '当前关卡可回刷' : '当前关卡仍待首通'}</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><strong>推演策略</strong><span class="tag">${getAutoBattleSpeedMeta(defaultAutoSpeed).label}</span></div>
+            <div class="inline-actions">
+              ${getAutoBattleStrategyOptions().map((strategy) => `<button class="${defaultAutoStrategy === strategy.id ? 'secondary' : 'ghost'}" data-action="battle-auto-strategy" data-id="${strategy.id}">${strategy.label}</button>`).join('')}
+            </div>
+            <div class="inline-actions">
+              ${getAutoBattleSpeedOptions().map((speed) => `<button class="${defaultAutoSpeed === speed.id ? 'secondary' : 'ghost'}" data-action="battle-auto-speed" data-id="${speed.id}">${speed.label}</button>`).join('')}
+            </div>
+            <div class="muted">主流程已经简化为“设目标 -> 一键挑战 -> 直接看结果与掉落”。前期更快给首通反馈，后期则会明显提高养成要求。</div>
+            <div class="muted">默认策略：${getAutoBattleStrategyMeta(defaultAutoStrategy).label} · 推演速度：${getAutoBattleSpeedMeta(defaultAutoSpeed).label}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderProgressionCurveCard(currentStage, army, deps = {}) {
   const { formatNumber } = deps;
   if (!currentStage) {
@@ -341,38 +426,36 @@ export function warPanel(state, registries, deps = {}) {
   const pressureMeta = getStagePressureMeta(currentStage?.powerGap ?? (currentTargetPower - currentBattlePower));
 
   return `
-    <div class="grid">
-      <section class="panel">
-        <div class="panel-title"><h3>战斗总览</h3><span class="tag">简化推演</span></div>
-        <div class="mini-grid">
-          <div class="card"><div class="muted">当前目标</div><strong>${currentStage?.name ?? '未选择'}</strong></div>
-          <div class="card"><div class="muted">难度分层</div><strong>${currentStage?.difficultyLabel ?? '常规推进'}</strong></div>
-          <div class="card"><div class="muted">建议军势</div><strong>${formatNumber(currentTargetPower)}</strong></div>
-          <div class="card"><div class="muted">当前军势</div><strong>${formatNumber(currentBattlePower)}</strong></div>
-          <div class="card"><div class="muted">已通关</div><strong>${state.war.clearedStages.length} 关</strong></div>
-          <div class="card"><div class="muted">推进压强</div><strong>${pressureMeta.label}</strong></div>
-        </div>
-        <div class="inline-actions">
-          ${getAutoBattleStrategyOptions().map((strategy) => `<button class="${defaultAutoStrategy === strategy.id ? 'secondary' : 'ghost'}" data-action="battle-auto-strategy" data-id="${strategy.id}">${strategy.label}</button>`).join('')}
-        </div>
-        <div class="inline-actions">
-          ${getAutoBattleSpeedOptions().map((speed) => `<button class="${defaultAutoSpeed === speed.id ? 'secondary' : 'ghost'}" data-action="battle-auto-speed" data-id="${speed.id}">${speed.label}</button>`).join('')}
-        </div>
-        <div class="muted">主流程已经简化为“设目标 -> 一键挑战 -> 直接看结果与掉落”。前期会更快给到首通回报，后期则会明显提高养成要求。</div>
-        <div class="muted">默认策略：${getAutoBattleStrategyMeta(defaultAutoStrategy).label} · 推演速度：${getAutoBattleSpeedMeta(defaultAutoSpeed).label}</div>
-      </section>
+    <div class="war-layout">
+      ${renderWarOverviewPanel(currentStage, state, {
+        formatNumber,
+        formatCostSummary,
+        getEncounterTypeLabel,
+        defaultAutoStrategy,
+        defaultAutoSpeed,
+        currentBattlePower,
+        currentTargetPower,
+        pressureMeta,
+      })}
 
-      ${renderProgressionCurveCard(currentStage, war.army, { formatNumber })}
-      ${renderRewardFocusCard(currentStage, { formatCostSummary })}
-      ${renderCounterFocusCard(war.counterAdvice)}
-      ${renderTacticalPlanCard(war.tacticalRecommendation, war.lastRecommendedPrep, { formatCostSummary, getResourceLabel: deps.getResourceLabel })}
-      ${renderBattleAdviceCard(war.battleAdvice, { tooltipAttr })}
-      ${war.activeBattle ? renderCurrentBattleCard(war.activeBattle, { formatNumber }) : ''}
-      ${renderLatestReportCard(latestReport, { tooltipAttr, formatCostSummary })}
+      <div class="war-columns">
+        <div class="war-main-column">
+          ${war.activeBattle ? renderCurrentBattleCard(war.activeBattle, { formatNumber }) : renderLatestReportCard(latestReport, { tooltipAttr, formatCostSummary })}
+          ${renderTacticalPlanCard(war.tacticalRecommendation, war.lastRecommendedPrep, { formatCostSummary, getResourceLabel: deps.getResourceLabel })}
+          ${renderBattleAdviceCard(war.battleAdvice, { tooltipAttr })}
+        </div>
 
-      <section class="panel">
-        <div class="panel-title"><h3>关卡列表</h3><span class="tag">${war.stages.length} 关</span></div>
-        <div class="stage-grid">
+        <div class="war-side-column">
+          ${renderProgressionCurveCard(currentStage, war.army, { formatNumber })}
+          ${renderRewardFocusCard(currentStage, { formatCostSummary })}
+          ${renderCounterFocusCard(war.counterAdvice)}
+          ${war.activeBattle && latestReport ? renderLatestReportCard(latestReport, { tooltipAttr, formatCostSummary }) : ''}
+        </div>
+      </div>
+
+      <section class="panel war-stage-panel">
+        <div class="panel-title"><h3>关卡路线</h3><span class="tag">${war.stages.length} 关</span></div>
+        <div class="stage-grid war-stage-grid">
           ${war.stages.map((stage) => renderStageCard(stage, {
             tooltipAttr,
             formatNumber,

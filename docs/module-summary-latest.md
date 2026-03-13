@@ -4122,3 +4122,44 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 16/16`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-13 War Focus Pass And Scripture/Logs Cleanup
+- Main goal:
+  - finish the follow-up UI cleanup after the classical theme rollout
+  - make the war page easier to read at first glance by reducing fragmentation
+  - fix remaining immersion breaks in logs and rebalance the scripture desktop layout
+
+- War page update:
+  - upgraded `src/ui/panels/warPanel.js`
+  - upgraded `styles/theme.css`
+  - replaced the old dense overview wall with a focused battle-overview section:
+    - current target stage hero card
+    - progression pressure summary
+    - auto strategy / speed controls
+    - direct CTA to challenge or jump to `barracks`
+  - reorganized the page into `war-layout` / `war-columns` / main-side structure
+  - stage list now reads more like a route map
+  - active battle side content now skips the latest-report card when no report exists yet
+
+- Logs and scripture cleanup:
+  - upgraded `src/ui/panels/logsPanel.js`
+  - upgraded `src/ui/panels/scripturePanel.js`
+  - logs now map common internal categories to Chinese-facing labels so entries no longer expose raw English keys
+  - scripture now adds a focused progression card and uses a dedicated node-card layout, reducing the previous desktop imbalance
+
+- Cache refresh:
+  - upgraded `src/ui/panelRenderers.js`
+  - upgraded `src/ui/renderApp.js`
+  - upgraded `src/main.js`
+  - upgraded `index.html`
+  - upgraded `smoke.html`
+  - bumped the module version chain again to reduce stale-cache rendering after the panel refactor
+
+- Verification:
+  - `node --check src/ui/panels/logsPanel.js`
+  - `node --check src/ui/panels/scripturePanel.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/renderApp.js`
+  - `node --check src/main.js`
+  - `python tools/run_ui_smoke.py --timeout 25`
