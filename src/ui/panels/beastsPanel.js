@@ -30,7 +30,7 @@ function renderResourceMap(resourceMap = {}, getResourceLabel) {
   return entries.map(([resourceId, amount]) => `${getResourceLabel?.(resourceId) ?? resourceId} ${amount}`).join(' · ');
 }
 
-function getBondEffectLabel(effect = {}) {
+function getBondEffectLabel(effect = {}, getResourceLabel) {
   switch (effect.type) {
     case 'battleAttack':
       return '攻势';
@@ -43,18 +43,18 @@ function getBondEffectLabel(effect = {}) {
     case 'unitPowerMultiplier':
       return '战力';
     case 'resourceMultiplier':
-      return effect.resourceId === 'lingStone' ? '灵石产出' : `${effect.resourceId ?? '资源'}产出`;
+      return `${getResourceLabel?.(effect.resourceId) ?? effect.resourceId ?? '资源'}产出`;
     default:
       return effect.type ?? '效果';
   }
 }
 
-function renderBondEffectSummary(effects = []) {
+function renderBondEffectSummary(effects = [], getResourceLabel) {
   if (!effects.length) {
     return '暂无加成';
   }
 
-  return effects.map((effect) => `${getBondEffectLabel(effect)} ${formatBondPercent(effect.value)}`).join(' · ');
+  return effects.map((effect) => `${getBondEffectLabel(effect, getResourceLabel)} ${formatBondPercent(effect.value)}`).join(' · ');
 }
 
 function renderLineupNames(lineup, emptyLabel = '未激活') {
@@ -65,14 +65,14 @@ function renderLineupNames(lineup, emptyLabel = '未激活') {
   return lineup.beasts.map((beast) => beast.name).join(' · ');
 }
 
-function renderBondList(snapshot, emptyLabel = '当前未激活灵兽羁绊') {
+function renderBondList(snapshot, emptyLabel = '当前未激活灵兽羁绊', getResourceLabel) {
   if (!snapshot?.activeBonds?.length) {
     return `<div class="muted">${emptyLabel}</div>`;
   }
 
   return snapshot.activeBonds.map((bond) => `
     <div class="card">
-      <div class="card-title"><strong>${bond.name}</strong><span class="tag">${renderBondEffectSummary(bond.effects)}</span></div>
+      <div class="card-title"><strong>${bond.name}</strong><span class="tag">${renderBondEffectSummary(bond.effects, getResourceLabel)}</span></div>
       <div class="muted">${bond.description}</div>
     </div>
   `).join('');
@@ -91,8 +91,90 @@ function renderExpeditionHistory(history = [], getResourceLabel) {
         <div class="muted">${entry.eventState?.resolvedEvents?.length
           ? `奇遇抉择：${entry.eventState.resolvedEvents.map((event) => `${event.eventName} / ${event.optionLabel}`).join(' · ')}`
           : '本次巡游未触发额外奇遇。'}</div>
+        <div class="muted">${entry.discoveredRelics?.length
+          ? `巡游异宝：${entry.discoveredRelics.map((relic) => relic.name).join('、')}`
+          : `图鉴见闻 +${entry.routeInsightGain ?? 0}`}</div>
       </div>
       <span class="tag">已带回</span>
+    </div>
+  `).join('');
+}
+
+function getRelicRarityLabel(rarity = '') {
+  switch (rarity) {
+    case 'legendary':
+      return '传说';
+    case 'epic':
+      return '稀世';
+    case 'rare':
+      return '珍奇';
+    default:
+      return '异宝';
+  }
+}
+
+function renderRelicRouteProgress(routes = [], getResourceLabel) {
+  if (!routes.length) {
+    return '<div class="muted">暂无可追踪路线，后续巡游开放后会逐步记录图鉴见闻。</div>';
+  }
+
+  return routes.map((route) => `
+    <div class="log-item">
+      <div>
+        <strong>${route.routeName}</strong>
+        <div class="muted">${route.completed ? '该路线异宝已全部收录，可继续巡游补资源。' : `当前见闻 ${route.currentInsight}/${route.threshold}，再推进即可解锁下一件异宝。`}</div>
+        <div class="muted">${route.nextRelic
+          ? `下一件：${route.nextRelic.name} · ${route.nextRelic.description} · 效果 ${renderBondEffectSummary(route.nextRelic.effects, getResourceLabel)}`
+          : '下一件：已完成整条路线图鉴收录。'}</div>
+      </div>
+      <span class="tag">${route.ownedCount}/${route.totalCount}</span>
+    </div>
+  `).join('');
+}
+
+function renderRelicCollectionList(relics = [], routeNameById = {}, getResourceLabel) {
+  if (!relics.length) {
+    return '<div class="muted">暂无异宝定义。</div>';
+  }
+
+  return relics.map((relic) => `
+    <div class="log-item">
+      <div>
+        <strong>${relic.owned ? relic.name : '未鉴定异宝'}</strong>
+        <div class="muted">${routeNameById[relic.routeId] ?? relic.routeId} · ${getRelicRarityLabel(relic.rarity)} · ${relic.owned ? relic.description : '继续在该路线巡游累积见闻后可解锁。'}</div>
+        <div class="muted">${relic.owned ? `单件效果：${renderBondEffectSummary(relic.effects, getResourceLabel)}` : '收录后会提供单件增益，并推进对应套装收集进度。'}</div>
+      </div>
+      <span class="tag">${relic.owned ? '已收录' : '未发现'}</span>
+    </div>
+  `).join('');
+}
+
+function renderRelicSetList(sets = [], getResourceLabel) {
+  if (!sets.length) {
+    return '<div class="muted">暂无套装共鸣。</div>';
+  }
+
+  return sets.map((setDefinition) => `
+    <div class="card">
+      <div class="card-title"><strong>${setDefinition.name}</strong><span class="tag">${setDefinition.active ? '已激活' : `${setDefinition.ownedCount}/${setDefinition.requiredCount}`}</span></div>
+      <div class="muted">${setDefinition.description}</div>
+      <div class="muted">套装效果：${renderBondEffectSummary(setDefinition.effects, getResourceLabel)}</div>
+    </div>
+  `).join('');
+}
+
+function renderRelicDiscoveries(discoveries = []) {
+  if (!discoveries.length) {
+    return '<div class="muted">最近还没有新异宝入藏，继续推进巡游即可逐步补全图鉴。</div>';
+  }
+
+  return discoveries.map((entry) => `
+    <div class="log-item">
+      <div>
+        <strong>${entry.relicName}</strong>
+        <div class="muted">${entry.routeName ?? entry.routeId ?? '未知路线'} · ${entry.beastName ?? '巡游灵兽'} · ${entry.qualityLabel ?? '巡游收获'}</div>
+      </div>
+      <span class="tag">新收录</span>
     </div>
   `).join('');
 }
@@ -111,6 +193,10 @@ export function beastsPanel(state, registries, deps = {}) {
   const recommendedNames = renderLineupNames(recommendedLineup, '暂无推荐');
   const recommendedBondNames = recommendedBondSnapshot.activeBonds?.map((bond) => bond.name).join('、') || '暂无羁绊联动';
   const expedition = menagerie.expedition ?? { active: null, history: [], routes: [] };
+  const collection = menagerie.collection ?? { relics: [], sets: [], routes: [], recentDiscoveries: [], totalOwned: 0, totalCount: 0 };
+  const activeRelicSetCount = collection.sets?.filter((setDefinition) => setDefinition.active).length ?? 0;
+  const routeNameById = Object.fromEntries((collection.routes ?? []).map((route) => [route.routeId, route.routeName]));
+  const nextRelicRoute = collection.routes?.find((route) => !route.completed && route.nextRelic) ?? null;
 
   return `
     <div class="grid">
@@ -147,11 +233,11 @@ export function beastsPanel(state, registries, deps = {}) {
         <div class="grid">
           <div class="card">
             <div class="card-title"><strong>灵兽羁绊</strong><span class="tag">当前阵列</span></div>
-            ${renderBondList(activeBondSnapshot, '当前阵列尚未激活羁绊，可尝试套用推荐兽阵。')}
+            ${renderBondList(activeBondSnapshot, '当前阵列尚未激活羁绊，可尝试套用推荐兽阵。', getResourceLabel)}
           </div>
           <div class="card">
             <div class="card-title"><strong>推荐可激活羁绊</strong><span class="tag">推荐阵列</span></div>
-            ${renderBondList(recommendedBondSnapshot, '当前推荐更偏单兽强度，暂未形成羁绊联动。')}
+            ${renderBondList(recommendedBondSnapshot, '当前推荐更偏单兽强度，暂未形成羁绊联动。', getResourceLabel)}
           </div>
         </div>
         <div class="panel-title"><h3>灵兽巡游</h3><span class="tag">${expedition.active ? (expedition.active.completed ? '待收取' : '进行中') : '空闲'}</span></div>
@@ -214,6 +300,39 @@ export function beastsPanel(state, registries, deps = {}) {
               </div>
             </div>
           `).join('')}
+        </div>
+        <div class="panel-title"><h3>巡游图鉴</h3><span class="tag">收录 ${collection.totalOwned}/${collection.totalCount}</span></div>
+        <div class="mini-grid">
+          <div class="card"><div class="muted">已收录异宝</div><strong>${collection.totalOwned}/${collection.totalCount}</strong></div>
+          <div class="card"><div class="muted">激活套装</div><strong>${activeRelicSetCount} 套</strong></div>
+          <div class="card"><div class="muted">最近发现</div><strong>${collection.recentDiscoveries?.[0]?.relicName ?? '暂无'}</strong></div>
+          <div class="card"><div class="muted">当前追踪路线</div><strong>${nextRelicRoute?.routeName ?? '全部收录'}</strong></div>
+        </div>
+        <div class="grid">
+          <div class="card">
+            <div class="card-title"><strong>路线见闻</strong><span class="tag">${nextRelicRoute?.nextRelic?.name ?? '已收录完成'}</span></div>
+            <div class="log-list">
+              ${renderRelicRouteProgress(collection.routes, getResourceLabel)}
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title"><strong>异宝收藏</strong><span class="tag">${collection.totalOwned} 件已收录</span></div>
+            <div class="log-list">
+              ${renderRelicCollectionList(collection.relics, routeNameById, getResourceLabel)}
+            </div>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="card">
+            <div class="card-title"><strong>套装共鸣</strong><span class="tag">${activeRelicSetCount ? '已生效' : '待补全'}</span></div>
+            ${renderRelicSetList(collection.sets, getResourceLabel)}
+          </div>
+          <div class="card">
+            <div class="card-title"><strong>最近发现</strong><span class="tag">${collection.recentDiscoveries?.length ?? 0} 条</span></div>
+            <div class="log-list">
+              ${renderRelicDiscoveries(collection.recentDiscoveries)}
+            </div>
+          </div>
         </div>
         <div class="log-list">
           ${beasts.map((beast) => {

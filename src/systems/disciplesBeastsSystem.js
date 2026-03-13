@@ -9,6 +9,7 @@ import {
 import { getBeastBondSnapshot } from '../data/beastBonds.js';
 import { getBeastExpeditionDefinition, listBeastExpeditionDefinitions } from '../data/beastExpeditions.js';
 import { getBeastExpeditionEventTriggerProgress, pickBeastExpeditionEventDefinition } from '../data/beastExpeditionEvents.js';
+import { getBeastRelicSnapshot, getNextBeastRelicForRoute, listBeastRelicDefinitions } from '../data/beastRelics.js';
 import { getExpeditionBondSnapshot } from '../data/expeditionBonds.js';
 import {
   filterCandidatesByGuarantee,
@@ -53,6 +54,14 @@ function ensureCharacterState(state) {
   state.beasts.activeIds ??= [];
   state.beasts.awakeningLevels ??= {};
   state.beasts.bondLevels ??= {};
+  state.beasts.collection ??= {
+    relicIds: [],
+    routeInsight: {},
+    recentDiscoveries: [],
+  };
+  state.beasts.collection.relicIds ??= [];
+  state.beasts.collection.routeInsight ??= {};
+  state.beasts.collection.recentDiscoveries ??= [];
   state.beasts.expedition ??= {
     active: null,
     history: [],
@@ -825,6 +834,79 @@ function getBeastExpeditionQualityLabel(score = 0) {
   return '初探';
 }
 
+function getBeastExpeditionInsightGain(activeExpedition) {
+  const qualityBaseByLabel = {
+    初探: 34,
+    顺利: 52,
+    大丰收: 70,
+  };
+  const qualityBase = qualityBaseByLabel[activeExpedition?.qualityLabel] ?? 30;
+  const tagInsight = Math.max(Number(activeExpedition?.tagMatches) || 0, 0) * 12;
+  const resolvedEventCount = Math.max(activeExpedition?.eventState?.resolvedEvents?.length ?? 0, 0);
+  const eventInsight = resolvedEventCount * 16;
+  const rewardVarietyInsight = Math.min(Object.keys(activeExpedition?.rewardMap ?? {}).length, 4) * 4;
+  return qualityBase + tagInsight + eventInsight + rewardVarietyInsight;
+}
+
+function resolveBeastRelicDiscovery(state, activeExpedition, now = Date.now()) {
+  const routeId = activeExpedition?.routeId ?? null;
+  if (!routeId) {
+    return {
+      insightGain: 0,
+      discoveries: [],
+      remainingInsight: 0,
+      nextRelic: null,
+    };
+  }
+
+  const collection = state.beasts.collection ??= {
+    relicIds: [],
+    routeInsight: {},
+    recentDiscoveries: [],
+  };
+  collection.relicIds ??= [];
+  collection.routeInsight ??= {};
+  collection.recentDiscoveries ??= [];
+
+  const insightGain = getBeastExpeditionInsightGain(activeExpedition);
+  collection.routeInsight[routeId] = Math.max(Number(collection.routeInsight?.[routeId]) || 0, 0) + insightGain;
+
+  const discoveries = [];
+  let nextRelic = getNextBeastRelicForRoute(routeId, collection.relicIds);
+  while (nextRelic && (collection.routeInsight?.[routeId] ?? 0) >= nextRelic.discoveryThreshold) {
+    collection.routeInsight[routeId] -= nextRelic.discoveryThreshold;
+    if (!collection.relicIds.includes(nextRelic.id)) {
+      collection.relicIds.push(nextRelic.id);
+    }
+    const discoveryRecord = {
+      relicId: nextRelic.id,
+      routeId,
+      discoveredAt: now,
+      beastId: activeExpedition?.beastId ?? null,
+      beastName: activeExpedition?.beastName ?? null,
+      qualityLabel: activeExpedition?.qualityLabel ?? null,
+    };
+    discoveries.push({
+      ...discoveryRecord,
+      relicName: nextRelic.name,
+    });
+    collection.recentDiscoveries.unshift(discoveryRecord);
+    nextRelic = getNextBeastRelicForRoute(routeId, collection.relicIds);
+  }
+
+  if (!nextRelic) {
+    collection.routeInsight[routeId] = 0;
+  }
+  collection.recentDiscoveries = collection.recentDiscoveries.slice(0, 8);
+
+  return {
+    insightGain,
+    discoveries,
+    remainingInsight: Math.max(Number(collection.routeInsight?.[routeId]) || 0, 0),
+    nextRelic,
+  };
+}
+
 function evaluateBeastExpeditionCandidate(beast, definition) {
   const preferredTags = new Set(definition?.preferredTags ?? []);
   const preferredArchetypes = new Set(definition?.preferredArchetypes ?? []);
@@ -868,6 +950,7 @@ function pickRecommendedBeastExpedition(beasts = [], definition = null) {
 
 function getBeastExpeditionSnapshot(state, registries, beasts = getBeastSnapshot(state, registries)) {
   const unlockedBeasts = beasts.filter((beast) => beast.unlocked);
+  const relicNameById = new Map(listBeastRelicDefinitions().map((definition) => [definition.id, definition.name]));
   const activeRecord = state.beasts?.expedition?.active
     ? {
       ...state.beasts.expedition.active,
@@ -902,6 +985,10 @@ function getBeastExpeditionSnapshot(state, registries, beasts = getBeastSnapshot
     ? state.beasts.expedition.history.slice(0, 6).map((entry) => ({
       ...entry,
       rewardMap: { ...(entry.rewardMap ?? {}) },
+      discoveredRelics: (entry.discoveredRelicIds ?? []).map((relicId) => ({
+        id: relicId,
+        name: relicNameById.get(relicId) ?? relicId,
+      })),
       eventState: {
         triggerProgress: entry.eventState?.triggerProgress ?? getBeastExpeditionEventTriggerProgress(),
         pendingEvent: entry.eventState?.pendingEvent
@@ -1251,15 +1338,24 @@ export function claimBeastExpedition({ store }) {
       return;
     }
 
+    const claimedAt = Date.now();
     addResourceMap(draft, active.rewardMap);
+    const relicDiscovery = resolveBeastRelicDiscovery(draft, active, claimedAt);
     draft.beasts.expedition.history.unshift({
       ...active,
       rewardMap: { ...(active.rewardMap ?? {}) },
-      claimedAt: Date.now(),
+      claimedAt,
+      routeInsightGain: relicDiscovery.insightGain,
+      discoveredRelicIds: relicDiscovery.discoveries.map((entry) => entry.relicId),
     });
     draft.beasts.expedition.history = draft.beasts.expedition.history.slice(0, 8);
     draft.beasts.expedition.active = null;
-    appendLog(draft, 'beasts', `${active.beastName} 完成 ${active.routeName}，带回一批巡游收获`);
+    const discoveryNames = relicDiscovery.discoveries.map((entry) => entry.relicName).join('、');
+    appendLog(
+      draft,
+      'beasts',
+      `${active.beastName} 完成 ${active.routeName}，带回一批巡游收获${discoveryNames ? `，并寻得异宝 ${discoveryNames}` : `，巡游见闻 +${relicDiscovery.insightGain}`}`,
+    );
     success = true;
   }, { type: 'beasts/claim-expedition' });
 
@@ -1477,6 +1573,7 @@ export function getBeastMenagerieSnapshot(state, registries) {
   const beasts = getBeastSnapshot(state, registries);
   const unlockedBeasts = beasts.filter((beast) => beast.unlocked);
   const activeBeasts = beasts.filter((beast) => beast.active);
+  const collectionSnapshot = getBeastRelicSnapshot(state.beasts?.collection);
   const featuredBeast = [...unlockedBeasts]
     .sort((left, right) => (
       ((right.fitScore ?? 0) - (left.fitScore ?? 0))
@@ -1498,6 +1595,14 @@ export function getBeastMenagerieSnapshot(state, registries) {
   const activeLineup = evaluateBeastLineup(activeBeasts);
   const activeSignature = getBeastLineupSignature(activeLineup.beastIds);
   const recommendedSignature = getBeastLineupSignature(recommendedLineup?.beastIds ?? []);
+  const collectionRoutes = Object.values(collectionSnapshot.routeProgress ?? {}).map((progress) => ({
+    ...progress,
+    routeName: getBeastExpeditionDefinition(progress.routeId)?.name ?? progress.routeId,
+  }));
+  const collectionRecentDiscoveries = (collectionSnapshot.recentDiscoveries ?? []).map((entry) => ({
+    ...entry,
+    routeName: getBeastExpeditionDefinition(entry.routeId)?.name ?? entry.routeId,
+  }));
 
   return {
     beasts,
@@ -1514,5 +1619,10 @@ export function getBeastMenagerieSnapshot(state, registries) {
       }
       : null,
     expedition: getBeastExpeditionSnapshot(state, registries, beasts),
+    collection: {
+      ...collectionSnapshot,
+      routes: collectionRoutes,
+      recentDiscoveries: collectionRecentDiscoveries,
+    },
   };
 }

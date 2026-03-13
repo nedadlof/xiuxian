@@ -1,6 +1,7 @@
 import { getDiscipleEffectMultiplier } from '../../data/discipleTraining.js';
 import { getBeastBondEffects, getBeastBondSnapshot } from '../../data/beastBonds.js';
 import { getExpeditionBondEffects, getExpeditionBondSnapshot } from '../../data/expeditionBonds.js';
+import { getBeastRelicEffects, getBeastRelicSnapshot } from '../../data/beastRelics.js';
 import { listBattlePreparationDefinitions } from '../../data/battlePreparations.js';
 
 export function collectUnlockedEffects(state, registries) {
@@ -87,6 +88,8 @@ export function collectUnlockedEffects(state, registries) {
     .filter(Boolean);
   const beastBondSnapshot = getBeastBondSnapshot(activeBeastRoster);
   const beastBondEffects = getBeastBondEffects(activeBeastRoster);
+  const beastRelicSnapshot = getBeastRelicSnapshot(state.beasts?.collection);
+  const beastRelicEffectBundle = getBeastRelicEffects(state.beasts?.collection);
 
   const preparationEffects = listBattlePreparationDefinitions().flatMap((definition) => {
     const level = state.preparations?.levels?.[definition.id] ?? 0;
@@ -111,6 +114,9 @@ export function collectUnlockedEffects(state, registries) {
     beastEffects,
     beastBondSnapshot,
     beastBondEffects,
+    beastRelicSnapshot,
+    beastRelicEffects: beastRelicEffectBundle.relicEffects,
+    beastRelicSetEffects: beastRelicEffectBundle.setEffects,
     preparationEffects,
     all: [
       ...techEffects,
@@ -119,6 +125,7 @@ export function collectUnlockedEffects(state, registries) {
       ...teamBondEffects,
       ...beastEffects,
       ...beastBondEffects,
+      ...beastRelicEffectBundle.all,
       ...preparationEffects,
     ],
   };

@@ -672,6 +672,9 @@ async function runSmoke() {
       assert(!expeditionState.beasts.expedition?.active?.eventState?.pendingEvent, '灵兽巡游奇遇未成功结算');
       assert((expeditionState.beasts.expedition?.active?.eventState?.resolvedEvents?.length ?? 0) > 0, '巡游奇遇未写入已结算记录');
       harness.app.store.update((draft) => {
+        draft.beasts.collection ??= { relicIds: [], routeInsight: {}, recentDiscoveries: [] };
+        draft.beasts.collection.routeInsight ??= {};
+        draft.beasts.collection.routeInsight['verdant-trail'] = 92;
         if (draft.beasts.expedition?.active) {
           draft.beasts.expedition.active.completesAt = Date.now() - 1000;
         }
@@ -683,11 +686,14 @@ async function runSmoke() {
       assert(!expeditionState.beasts.expedition?.active, '灵兽巡游领取后仍残留进行中状态');
       assert((expeditionState.beasts.expedition?.history?.length ?? 0) > beforeExpeditionHistory, '灵兽巡游未写入历史');
       assert(afterRouteRewards > beforeRouteRewards, `灵兽巡游未增加资源: before=${beforeRouteRewards}, after=${afterRouteRewards}`);
+      assert((expeditionState.beasts.collection?.relicIds?.length ?? 0) > 0, '灵兽巡游未解锁异宝图鉴');
       assert(root.textContent.includes('灵兽养成'), '灵兽页未渲染养成说明');
       assert(root.textContent.includes('兽契共鸣'), '灵兽页未渲染兽契共鸣');
       assert(root.textContent.includes('灵兽羁绊'), '灵兽页未渲染灵兽羁绊');
+      assert(root.textContent.includes('巡游图鉴'), '灵兽页未渲染巡游图鉴');
+      assert(root.textContent.includes('露痕琥珀'), '灵兽页未展示新解锁的巡游异宝');
       assert(root.textContent.includes('灾庭猎阵'), '灵兽页未展示推荐兽阵羁绊');
-      return `灵兽 ${beastId} 激活状态 ${wasActive} -> ${isActive}，觉醒 ${beforeAwakening} -> ${afterAwakening}，兽契 ${beforeBond} -> ${afterBond}，推荐兽阵=${afterApplyIds.join('/')}，巡游记录=${expeditionState.beasts.expedition?.history?.length ?? 0}`;
+      return `灵兽 ${beastId} 激活状态 ${wasActive} -> ${isActive}，觉醒 ${beforeAwakening} -> ${afterAwakening}，兽契 ${beforeBond} -> ${afterBond}，推荐兽阵=${afterApplyIds.join('/')}，巡游记录=${expeditionState.beasts.expedition?.history?.length ?? 0}，异宝=${expeditionState.beasts.collection?.relicIds?.join('/') ?? 'none'}`;
     });
 
     await runCase('Save And Hydrate Cycle', async () => {

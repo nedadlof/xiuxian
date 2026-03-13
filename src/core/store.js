@@ -182,6 +182,11 @@ export function createBaseState() {
       activeIds: [],
       awakeningLevels: {},
       bondLevels: {},
+      collection: {
+        relicIds: [],
+        routeInsight: {},
+        recentDiscoveries: [],
+      },
       expedition: {
         active: null,
         history: [],
@@ -383,6 +388,17 @@ export function normalizeState(savedState = {}) {
       },
       bondLevels: {
         ...(savedState.beasts?.bondLevels ?? {}),
+      },
+      collection: {
+        ...base.beasts.collection,
+        ...(savedState.beasts?.collection ?? {}),
+        relicIds: uniqueList(savedState.beasts?.collection?.relicIds),
+        routeInsight: {
+          ...(savedState.beasts?.collection?.routeInsight ?? {}),
+        },
+        recentDiscoveries: Array.isArray(savedState.beasts?.collection?.recentDiscoveries)
+          ? savedState.beasts.collection.recentDiscoveries.slice(0, 8).map((entry) => ({ ...entry }))
+          : base.beasts.collection.recentDiscoveries,
       },
       expedition: {
         ...base.beasts.expedition,

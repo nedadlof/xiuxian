@@ -3507,3 +3507,93 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 15/15`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-13 灵兽巡游异宝图鉴与套装共鸣
+
+- Main goal:
+  - extend beast expedition into a longer-term collection loop
+  - make each route worth repeated farming by adding:
+    - route-specific relic discoveries
+    - codex-style collection progress
+    - relic set bonuses
+    - more visible post-expedition progression feedback
+
+- New data module:
+  - added `src/data/beastRelics.js`
+  - current relic design includes:
+    - 6 route relics
+    - 3 relic sets
+    - helper exports for:
+      - relic listing
+      - set listing
+      - next route relic lookup
+      - collection snapshot building
+      - relic + set effect aggregation
+  - route coverage:
+    - `verdant-trail`
+    - `flame-rift`
+    - `ruin-vault`
+
+- State and settlement update:
+  - upgraded `src/core/store.js`
+  - upgraded `src/systems/disciplesBeastsSystem.js`
+  - beasts save data now persists:
+    - `beasts.collection.relicIds`
+    - `beasts.collection.routeInsight`
+    - `beasts.collection.recentDiscoveries`
+  - expedition claim now additionally:
+    - converts route quality, tag fit, resolved encounter count, and reward variety into `routeInsight`
+    - unlocks the next relic once the route threshold is reached
+    - stores recent discoveries
+    - writes relic discovery info into expedition history
+  - completion behavior is deterministic:
+    - the player accumulates stable route insight instead of relying on pure RNG
+    - this keeps progression readable in UI and reliable in smoke tests
+
+- Effect bus integration:
+  - upgraded `src/systems/shared/effectResolver.js`
+  - relic single-piece effects and full-set effects are now merged into the existing unlocked effect pipeline
+  - reused existing effect types only:
+    - `battleAttack`
+    - `battleDefense`
+    - `battleSustain`
+    - `battleLoot`
+    - `unitPowerMultiplier`
+    - `resourceMultiplier`
+  - this keeps relic progression naturally linked with:
+    - battle throughput
+    - loot return
+    - unit growth
+    - herb / pill / talisman / ling stone production
+
+- UI update:
+  - upgraded `src/ui/panels/beastsPanel.js`
+  - beasts page now includes a dedicated `巡游图鉴` section showing:
+    - total relic collection progress
+    - route insight progress and next relic target
+    - owned relics and their effects
+    - active relic set bonuses
+    - recent discoveries
+  - expedition history now also surfaces:
+    - gained route insight
+    - newly discovered relics from that trip
+
+- Smoke update:
+  - upgraded `Beasts Unlock And Toggle`
+  - smoke now preloads `verdant-trail` insight close to threshold and verifies:
+    - expedition claim unlocks relic collection data
+    - beasts page renders `巡游图鉴`
+    - newly unlocked relic text appears on screen
+    - expedition history and collection state stay in sync
+
+- Verified locally:
+  - `node --check src/data/beastRelics.js`
+  - `node --check src/core/store.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/systems/shared/effectResolver.js`
+  - `node --check src/ui/panels/beastsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
