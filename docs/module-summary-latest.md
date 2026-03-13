@@ -3796,3 +3796,76 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 16/16`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-13 兵丹共鸣与定向洗练方案
+
+- Main goal:
+  - push the workshop loop from single-item score chasing into longer-term build planning
+  - add two mid-to-late game depth layers on top of existing forge/alchemy output:
+    - weapon + pill set-style resonance
+    - controllable reforge plans with affix lock and focus bias
+
+- New data and state:
+  - added `src/data/craftingResonances.js`
+  - upgraded `src/core/store.js`
+  - current crafting save data now additionally persists:
+    - `crafting.reforgePlans`
+      - `focusType`
+      - `lockedAffixId`
+
+- Shared crafting upgrade:
+  - upgraded `src/systems/shared/crafting.js`
+  - active arsenal + active pill batches now compute resonance progress from their shared tags
+  - current resonance layer is data-driven and can be extended later without touching economy UI flow
+  - weapon reforge is no longer pure full reroll:
+    - players can cycle a locked affix
+    - players can cycle a target effect tendency
+    - reforge cost now scales with lock/focus control
+    - focused reforge biases new affix rolls toward the selected effect family
+    - locked affix survives the reroll when present
+  - crafting snapshot now exposes:
+    - active resonance entries
+    - upcoming resonance progress
+    - per-weapon reforge plan summary
+    - per-weapon lock/focus controls for UI
+
+- Economy and UI update:
+  - upgraded `src/systems/economySystem.js`
+  - upgraded `src/ui/economyEvents.js`
+  - upgraded `src/ui/panels/economyPanel.js`
+  - added new economy actions:
+    - `cycleWeaponReforgeLock`
+    - `cycleWeaponReforgeFocus`
+  - economy page now includes:
+    - `兵丹共鸣`
+    - active resonance list
+    - upcoming resonance progress list
+    - per-weapon `洗练方案` display
+    - `切换锁词`
+    - `切换倾向`
+    - `按方案洗练`
+  - current design goal:
+    - let players build around routes such as burst / defense / alchemy / command
+    - make workshop output planning matter before it gets turned into order delivery or battle throughput
+
+- Smoke update:
+  - upgraded `Forge And Alchemy Craft Loop`
+  - smoke now additionally verifies:
+    - economy page renders `兵丹共鸣`
+    - specific forge/alchemy pairing can activate `青藤回元`
+    - reforge lock plan can be written into save state
+    - reforge focus plan can be written into save state
+    - planned reforge still succeeds
+
+- Verified locally:
+  - `node --check src/data/craftingResonances.js`
+  - `node --check src/systems/shared/crafting.js`
+  - `node --check src/core/store.js`
+  - `node --check src/systems/economySystem.js`
+  - `node --check src/ui/economyEvents.js`
+  - `node --check src/ui/panels/economyPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 90`
+  - result:
+    - `SMOKE PASS 16/16`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression

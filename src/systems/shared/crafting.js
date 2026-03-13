@@ -6,6 +6,10 @@ import {
   listPillRecipeDefinitions,
   listWeaponBlueprints,
 } from '../../data/craftingCatalog.js';
+import {
+  getCraftingTagLabel,
+  listCraftingResonanceDefinitions,
+} from '../../data/craftingResonances.js';
 
 const RARITY_RANK = Object.freeze({
   common: 1,
@@ -31,6 +35,15 @@ const EFFECT_TYPE_LABELS = Object.freeze({
   unitPowerMultiplier: '兵势',
   resourceMultiplier: '产线',
 });
+
+const REFORGE_FOCUS_TYPE_ORDER = Object.freeze([
+  'battleAttack',
+  'battleDefense',
+  'battleSustain',
+  'battleLoot',
+  'unitPowerMultiplier',
+  'resourceMultiplier',
+]);
 
 function roundEffectValue(value) {
   return Math.round((Number(value) || 0) * 10000) / 10000;
@@ -96,6 +109,11 @@ function getEffectTypeLabel(type = null) {
   return type ? (EFFECT_TYPE_LABELS[type] ?? type) : '常备';
 }
 
+function getEffectTypeOrder(type = null) {
+  const index = REFORGE_FOCUS_TYPE_ORDER.indexOf(type);
+  return index >= 0 ? index : REFORGE_FOCUS_TYPE_ORDER.length;
+}
+
 function getWorkshopSlotSortValue(slotKey = '') {
   const index = WORKSHOP_ORDER_SLOT_ORDER.indexOf(slotKey);
   return index >= 0 ? index : WORKSHOP_ORDER_SLOT_ORDER.length;
@@ -142,13 +160,48 @@ function rollBetween(state, min, max) {
   return min + nextRandom(state) * (max - min);
 }
 
-function pickAffixes(state, blueprint, count) {
+function pickFromPool(state, pool = []) {
+  return pool[Math.floor(nextRandom(state) * Math.max(pool.length, 1))] ?? null;
+}
+
+function rollAffixValue(state, definition = {}, focusType = null) {
+  const min = Number(definition.min) || 0;
+  const max = Number(definition.max) || min;
+  if (max <= min) {
+    return roundEffectValue(max);
+  }
+
+  const favoredMin = definition.type === focusType
+    ? min + (max - min) * 0.22
+    : min;
+  return roundEffectValue(rollBetween(state, favoredMin, max));
+}
+
+function pickAffixes(state, blueprint, count, options = {}) {
   const pool = getWeaponAffixPool(blueprint);
-  const pickedIds = new Set();
-  const affixes = [];
+  const preservedAffixes = (options.preservedAffixes ?? []).map((affix) => ({ ...affix }));
+  const focusType = options.focusType ?? null;
+  const pickedIds = new Set(preservedAffixes.map((affix) => affix.id).filter(Boolean));
+  const affixes = preservedAffixes.slice(0, Math.max(Number(count) || 0, 0));
+  let needsGuaranteedFocus = Boolean(focusType) && !affixes.some((affix) => affix.type === focusType);
 
   while (affixes.length < count && pickedIds.size < pool.length) {
-    const candidate = pool[Math.floor(nextRandom(state) * pool.length)] ?? null;
+    const available = pool.filter((candidate) => !pickedIds.has(candidate.id));
+    if (!available.length) {
+      break;
+    }
+
+    let candidate = null;
+    if (needsGuaranteedFocus) {
+      candidate = pickFromPool(state, available.filter((entry) => entry.type === focusType));
+    }
+    if (!candidate && focusType) {
+      const focusPool = available.filter((entry) => entry.type === focusType);
+      if (focusPool.length && nextRandom(state) < 0.64) {
+        candidate = pickFromPool(state, focusPool);
+      }
+    }
+    candidate ??= pickFromPool(state, available);
     if (!candidate || pickedIds.has(candidate.id)) {
       continue;
     }
@@ -158,8 +211,11 @@ function pickAffixes(state, blueprint, count) {
       name: candidate.name,
       type: candidate.type,
       resourceId: candidate.resourceId ?? null,
-      value: roundEffectValue(rollBetween(state, candidate.min, candidate.max)),
+      value: rollAffixValue(state, candidate, focusType),
     });
+    if (candidate.type === focusType) {
+      needsGuaranteedFocus = false;
+    }
   }
 
   return affixes;
@@ -250,6 +306,153 @@ function buildActivePillIds(decoratedBatches = [], slotCount = 0) {
   );
 }
 
+function listWeaponAffixIds(weapon = {}) {
+  return [...new Set((weapon.affixes ?? []).map((affix) => affix?.id).filter(Boolean))];
+}
+
+function getWeaponReforgeFocusOptions(weapon = {}) {
+  const blueprint = weapon.blueprint ?? getWeaponBlueprint(weapon.blueprintId);
+  if (!blueprint) {
+    return [null];
+  }
+
+  const focusTypes = [...new Set([
+    ...(blueprint.effects ?? []).map((effect) => effect.type),
+    ...getWeaponAffixPool(blueprint).map((effect) => effect.type),
+    ...(weapon.affixes ?? []).map((effect) => effect.type),
+  ].filter(Boolean))]
+    .sort((left, right) => (
+      (getEffectTypeOrder(left) - getEffectTypeOrder(right))
+      || left.localeCompare(right)
+    ));
+
+  return [null, ...focusTypes];
+}
+
+function sanitizeWeaponReforgePlan(weapon = {}, plan = {}) {
+  const focusOptions = new Set(getWeaponReforgeFocusOptions(weapon).filter(Boolean));
+  const affixIds = new Set(listWeaponAffixIds(weapon));
+  return {
+    focusType: focusOptions.has(plan.focusType) ? plan.focusType : null,
+    lockedAffixId: affixIds.has(plan.lockedAffixId) ? plan.lockedAffixId : null,
+  };
+}
+
+function cleanupReforgePlans(state) {
+  state.crafting.reforgePlans ??= {};
+  const cleanedPlans = {};
+
+  for (const weapon of state.crafting.forgedWeapons ?? []) {
+    if (!weapon?.id) {
+      continue;
+    }
+    const nextPlan = sanitizeWeaponReforgePlan(weapon, state.crafting.reforgePlans?.[weapon.id] ?? {});
+    if (nextPlan.focusType || nextPlan.lockedAffixId) {
+      cleanedPlans[weapon.id] = nextPlan;
+    }
+  }
+
+  state.crafting.reforgePlans = cleanedPlans;
+}
+
+function getWeaponReforgePlan(state, weapon = {}) {
+  ensureCraftingState(state);
+  return sanitizeWeaponReforgePlan(weapon, state.crafting.reforgePlans?.[weapon.id] ?? {});
+}
+
+function setWeaponReforgePlanInState(state, weapon = {}, nextPlan = {}) {
+  ensureCraftingState(state);
+  const sanitizedPlan = sanitizeWeaponReforgePlan(weapon, nextPlan);
+  if (!sanitizedPlan.focusType && !sanitizedPlan.lockedAffixId) {
+    delete state.crafting.reforgePlans?.[weapon.id];
+  } else {
+    state.crafting.reforgePlans ??= {};
+    state.crafting.reforgePlans[weapon.id] = sanitizedPlan;
+  }
+  return sanitizedPlan;
+}
+
+function getWeaponReforgeLockLabel(weapon = {}, plan = {}) {
+  if (!(weapon.affixes?.length > 0)) {
+    return '无可锁词条';
+  }
+  return weapon.affixes.find((affix) => affix.id === plan.lockedAffixId)?.name ?? '未锁词条';
+}
+
+function getWeaponReforgePlanSummary(weapon = {}, plan = {}) {
+  return `锁词：${getWeaponReforgeLockLabel(weapon, plan)} · 倾向：${getEffectTypeLabel(plan.focusType)}`;
+}
+
+function incrementTagCount(tagCounts, tags = []) {
+  for (const tag of new Set(tags.filter(Boolean))) {
+    tagCounts[tag] = (tagCounts[tag] ?? 0) + 1;
+  }
+  return tagCounts;
+}
+
+function buildTagProgress(requirements = {}, tagCounts = {}) {
+  return Object.entries(requirements ?? {}).map(([tag, required]) => ({
+    tag,
+    label: getCraftingTagLabel(tag),
+    required: Math.max(Number(required) || 0, 0),
+    current: Math.max(Number(tagCounts[tag]) || 0, 0),
+  }));
+}
+
+function renderTagRequirementSummary(entries = []) {
+  if (!(entries?.length > 0)) {
+    return '无额外需求';
+  }
+  return entries
+    .map((entry) => `${entry.label} ${Math.min(entry.current, entry.required)}/${entry.required}`)
+    .join(' · ');
+}
+
+function buildCraftingResonanceSnapshot(activeWeapons = [], activeBatches = []) {
+  const weaponTagCounts = activeWeapons.reduce(
+    (tagCounts, weapon) => incrementTagCount(tagCounts, weapon.blueprint?.tags ?? []),
+    {},
+  );
+  const pillTagCounts = activeBatches.reduce(
+    (tagCounts, batch) => incrementTagCount(tagCounts, batch.recipe?.tags ?? []),
+    {},
+  );
+
+  const resonances = listCraftingResonanceDefinitions()
+    .map((definition) => {
+      const weaponProgress = buildTagProgress(definition.weaponTags, weaponTagCounts);
+      const pillProgress = buildTagProgress(definition.pillTags, pillTagCounts);
+      const totalRequired = [...weaponProgress, ...pillProgress].reduce((sum, entry) => sum + entry.required, 0);
+      const totalCurrent = [...weaponProgress, ...pillProgress].reduce((sum, entry) => sum + Math.min(entry.current, entry.required), 0);
+      const active = [...weaponProgress, ...pillProgress].every((entry) => entry.current >= entry.required);
+
+      return {
+        ...definition,
+        effects: cloneEffects(definition.effects),
+        weaponProgress,
+        pillProgress,
+        active,
+        completionRatio: totalRequired > 0 ? totalCurrent / totalRequired : 1,
+        requirementSummary: `兵器：${renderTagRequirementSummary(weaponProgress)} / 丹药：${renderTagRequirementSummary(pillProgress)}`,
+        progressSummary: `兵器：${renderTagRequirementSummary(weaponProgress)} / 丹药：${renderTagRequirementSummary(pillProgress)}`,
+      };
+    })
+    .sort((left, right) => (
+      Number(Boolean(right.active)) - Number(Boolean(left.active))
+      || (right.completionRatio - left.completionRatio)
+      || (left.name ?? '').localeCompare(right.name ?? '')
+    ));
+
+  return {
+    weaponTagCounts,
+    pillTagCounts,
+    resonances,
+    activeCount: resonances.filter((entry) => entry.active).length,
+    active: resonances.filter((entry) => entry.active),
+    upcoming: resonances.filter((entry) => !entry.active).slice(0, 6),
+  };
+}
+
 export function ensureCraftingState(state) {
   state.crafting ??= {
     seed: 246813579,
@@ -259,6 +462,7 @@ export function ensureCraftingState(state) {
     weaponEssence: 0,
     forgedWeapons: [],
     brewedPills: [],
+    reforgePlans: {},
     workshopOrders: [],
     fulfillmentHistory: [],
   };
@@ -269,8 +473,10 @@ export function ensureCraftingState(state) {
   state.crafting.weaponEssence = Math.max(Number(state.crafting.weaponEssence) || 0, 0);
   state.crafting.forgedWeapons ??= [];
   state.crafting.brewedPills ??= [];
+  state.crafting.reforgePlans ??= {};
   state.crafting.workshopOrders ??= [];
   state.crafting.fulfillmentHistory ??= [];
+  cleanupReforgePlans(state);
   return state.crafting;
 }
 
@@ -400,7 +606,35 @@ export function getWeaponDismantleReward(instance = {}) {
   return Object.fromEntries(Object.entries(reward).filter(([, amount]) => amount > 0));
 }
 
-export function getWeaponReforgeCost(instance = {}) {
+export function cycleWeaponReforgeLockInState(state, weaponId) {
+  ensureCraftingState(state);
+  const weapon = state.crafting.forgedWeapons.find((entry) => entry.id === weaponId);
+  if (!weapon || !(weapon.affixes?.length > 0)) {
+    return null;
+  }
+
+  const currentPlan = getWeaponReforgePlan(state, weapon);
+  const options = [null, ...listWeaponAffixIds(weapon)];
+  const currentIndex = Math.max(options.indexOf(currentPlan.lockedAffixId), 0);
+  const nextLock = options[(currentIndex + 1) % options.length];
+  return setWeaponReforgePlanInState(state, weapon, { ...currentPlan, lockedAffixId: nextLock });
+}
+
+export function cycleWeaponReforgeFocusInState(state, weaponId) {
+  ensureCraftingState(state);
+  const weapon = state.crafting.forgedWeapons.find((entry) => entry.id === weaponId);
+  if (!weapon) {
+    return null;
+  }
+
+  const currentPlan = getWeaponReforgePlan(state, weapon);
+  const options = getWeaponReforgeFocusOptions(weapon);
+  const currentIndex = Math.max(options.indexOf(currentPlan.focusType), 0);
+  const nextFocus = options[(currentIndex + 1) % options.length];
+  return setWeaponReforgePlanInState(state, weapon, { ...currentPlan, focusType: nextFocus });
+}
+
+export function getWeaponReforgeCost(instance = {}, plan = {}) {
   const blueprint = getWeaponBlueprint(instance.blueprintId);
   if (!blueprint) {
     return {};
@@ -409,7 +643,8 @@ export function getWeaponReforgeCost(instance = {}) {
   const rank = getRarityRank(blueprint.rarity);
   const reforgeCount = Math.max(Number(instance.reforgeCount) || 0, 0);
   const strengthenLevel = Math.max(Number(instance.strengthenLevel) || 0, 0);
-  const multiplier = 1.16 ** reforgeCount;
+  const planMultiplier = 1 + (plan.lockedAffixId ? 0.28 : 0) + (plan.focusType ? 0.22 : 0);
+  const multiplier = (1.16 ** reforgeCount) * planMultiplier;
   const cost = {
     weaponEssence: Math.round((10 + rank * 5 + (instance.affixes?.length ?? 0) * 4 + strengthenLevel * 2) * multiplier),
     lingStone: Math.round(((blueprint.cost.lingStone ?? 60) * 0.28 + rank * 18) * multiplier),
@@ -454,6 +689,7 @@ export function forgeWeaponInState(state, blueprintId) {
 
   state.crafting.forgedWeapons.unshift(forged);
   state.crafting.forgedWeapons = state.crafting.forgedWeapons.slice(0, 60);
+  cleanupReforgePlans(state);
   return forged;
 }
 
@@ -514,15 +750,29 @@ export function reforgeWeaponInState(state, weaponId) {
 
   const rank = getRarityRank(blueprint.rarity);
   const reforgeCount = Math.max(Number(weapon.reforgeCount) || 0, 0);
-  const qualityFloor = Math.min(1.06, 0.9 + reforgeCount * 0.01 + rank * 0.01);
+  const plan = getWeaponReforgePlan(state, weapon);
+  const preservedAffixes = (weapon.affixes ?? [])
+    .filter((affix) => affix.id === plan.lockedAffixId)
+    .map((affix) => ({ ...affix }));
+  const qualityFloor = Math.min(
+    1.1,
+    0.9 + reforgeCount * 0.01 + rank * 0.01 + (plan.focusType ? 0.012 : 0) + (preservedAffixes.length ? 0.008 : 0),
+  );
   const qualityRoll = roundEffectValue(Math.max(qualityFloor, rollBetween(state, 0.9, 1.18) + rank * 0.005));
   const affixCount = Math.max(weapon.affixes?.length ?? 0, Math.min(blueprint.affixCapacity ?? 1, 1));
 
   weapon.qualityRoll = qualityRoll;
   weapon.qualityLabel = getQualityLabel(qualityRoll);
   weapon.baseEffects = scaleEffects(blueprint.effects, qualityRoll);
-  weapon.affixes = pickAffixes(state, blueprint, affixCount);
+  weapon.affixes = pickAffixes(state, blueprint, affixCount, {
+    preservedAffixes,
+    focusType: plan.focusType,
+  });
   weapon.reforgeCount = reforgeCount + 1;
+  setWeaponReforgePlanInState(state, weapon, {
+    ...plan,
+    lockedAffixId: preservedAffixes.length ? preservedAffixes[0].id : null,
+  });
   return weapon;
 }
 
@@ -542,6 +792,7 @@ export function dismantleWeaponInState(state, weaponId) {
     }
     state.resources[resourceId] = (state.resources?.[resourceId] ?? 0) + amount;
   }
+  cleanupReforgePlans(state);
   return { weapon, reward };
 }
 
@@ -804,6 +1055,7 @@ export function fulfillWorkshopOrderInState(state, orderId) {
   });
   state.crafting.fulfillmentHistory = state.crafting.fulfillmentHistory.slice(0, 8);
   ensureWorkshopOrdersInState(state);
+  cleanupReforgePlans(state);
   return {
     order,
     submitted,
@@ -843,14 +1095,27 @@ export function getCraftingSnapshot(state) {
   const weaponInventory = initialWeapons
     .map((entry) => decorateWeaponInstance(entry, weaponActiveIds))
     .filter(Boolean)
-    .map((entry) => ({
-      ...entry,
-      strengthenCost: getWeaponStrengthenCost(entry),
-      reforgeCost: getWeaponReforgeCost(entry),
-      dismantleReward: getWeaponDismantleReward(entry),
-      canStrengthen: canAffordCraftCost(state, getWeaponStrengthenCost(entry)),
-      canReforge: canAffordCraftCost(state, getWeaponReforgeCost(entry)),
-    }))
+    .map((entry) => {
+      const reforgePlan = getWeaponReforgePlan(state, entry);
+      const reforgeCost = getWeaponReforgeCost(entry, reforgePlan);
+      return {
+        ...entry,
+        reforgePlan,
+        reforgePlanSummary: getWeaponReforgePlanSummary(entry, reforgePlan),
+        reforgeLockLabel: getWeaponReforgeLockLabel(entry, reforgePlan),
+        reforgeFocusLabel: getEffectTypeLabel(reforgePlan.focusType),
+        reforgeFocusOptions: getWeaponReforgeFocusOptions(entry).filter(Boolean).map((type) => ({
+          type,
+          label: getEffectTypeLabel(type),
+        })),
+        canCycleLock: Boolean(entry.affixes?.length > 0),
+        strengthenCost: getWeaponStrengthenCost(entry),
+        reforgeCost,
+        dismantleReward: getWeaponDismantleReward(entry),
+        canStrengthen: canAffordCraftCost(state, getWeaponStrengthenCost(entry)),
+        canReforge: canAffordCraftCost(state, reforgeCost),
+      };
+    })
     .sort((left, right) => (
       Number(Boolean(right.active)) - Number(Boolean(left.active))
       || (right.score - left.score)
@@ -871,6 +1136,9 @@ export function getCraftingSnapshot(state) {
       || ((right.createdAt ?? 0) - (left.createdAt ?? 0))
       || (left.id ?? '').localeCompare(right.id ?? '')
     ));
+  const activeWeapons = weaponInventory.filter((entry) => entry.active);
+  const activeBatches = pillInventory.filter((entry) => entry.active);
+  const resonance = buildCraftingResonanceSnapshot(activeWeapons, activeBatches);
   const workshopOrders = sortWorkshopOrders(state.crafting.workshopOrders ?? [])
     .map((order) => decorateWorkshopOrder(order, weaponInventory, pillInventory));
 
@@ -885,7 +1153,7 @@ export function getCraftingSnapshot(state) {
         craftable: definition.unlocked && canAffordCraftCost(state, definition.cost),
       })),
       inventory: weaponInventory,
-      activeWeapons: weaponInventory.filter((entry) => entry.active),
+      activeWeapons,
     },
     alchemy: {
       slotCount: getPillActiveSlotCount(state),
@@ -896,7 +1164,10 @@ export function getCraftingSnapshot(state) {
         craftable: definition.unlocked && canAffordCraftCost(state, definition.cost),
       })),
       inventory: pillInventory,
-      activeBatches: pillInventory.filter((entry) => entry.active),
+      activeBatches,
+    },
+    resonance: {
+      ...resonance,
     },
     workshop: {
       orders: workshopOrders,
@@ -926,11 +1197,18 @@ export function getCraftingEffects(state) {
     sourceType: 'crafted-pill',
     rarity: batch.recipe?.rarity ?? 'common',
   })));
+  const resonanceEffects = snapshot.resonance.active.flatMap((resonance) => resonance.effects.map((effect) => ({
+    ...effect,
+    source: resonance.name,
+    sourceId: resonance.id,
+    sourceType: 'crafting-resonance',
+  })));
 
   return {
     snapshot,
     weaponEffects,
     pillEffects,
-    all: [...weaponEffects, ...pillEffects],
+    resonanceEffects,
+    all: [...weaponEffects, ...pillEffects, ...resonanceEffects],
   };
 }

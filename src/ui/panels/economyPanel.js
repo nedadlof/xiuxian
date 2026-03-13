@@ -87,6 +87,24 @@ function renderWorkshopHistory(history = [], formatNumber, getResourceLabel) {
   `).join('');
 }
 
+function renderResonanceCards(resonances = [], getResourceLabel) {
+  if (!(resonances?.length > 0)) {
+    return '<div class="muted">当前还没有可展示的共鸣条目，先让镇库兵器和入匣丹药形成稳定搭配。</div>';
+  }
+
+  return resonances.map((resonance) => `
+    <div class="log-item">
+      <div>
+        <strong>${resonance.name}</strong>
+        <div class="muted">${resonance.description}</div>
+        <div class="muted">${resonance.active ? `条件：${resonance.requirementSummary}` : `进度：${resonance.progressSummary}`}</div>
+        <div class="muted">效果：${renderEffectSummary(resonance.effects, getResourceLabel)}</div>
+      </div>
+      <span class="tag">${resonance.active ? '已激活' : '待成型'}</span>
+    </div>
+  `).join('');
+}
+
 export function economyPanel(state, registries, deps = {}) {
   const {
     tooltipAttr,
@@ -103,6 +121,7 @@ export function economyPanel(state, registries, deps = {}) {
   const manufacturing = overview.crafting ?? {
     arsenal: { weaponEssence: 0, slotCount: 0, unlockedBlueprintCount: 0, totalBlueprintCount: 0, activeWeapons: [], inventory: [], unlockedBlueprints: [], lockedBlueprints: [] },
     alchemy: { slotCount: 0, unlockedRecipeCount: 0, totalRecipeCount: 0, activeBatches: [], inventory: [], unlockedRecipes: [], lockedRecipes: [] },
+    resonance: { activeCount: 0, active: [], upcoming: [], resonances: [] },
     workshop: { orders: [], refreshCost: {}, canRefresh: false, history: [] },
   };
 
@@ -237,15 +256,18 @@ export function economyPanel(state, registries, deps = {}) {
                     `洗练花费：${renderWorkshopCost(weapon.reforgeCost, formatNumber, getResourceLabel)}`,
                     `分解返还：${renderWorkshopCost(weapon.dismantleReward, formatNumber, getResourceLabel)}`,
                   ])}>
-                    <div>
+                  <div>
                       <strong>${weapon.name}</strong>
                       <div class="muted">${weapon.qualityLabel} · ${renderRarityLabel(weapon.blueprint?.rarity)} · 强化 +${weapon.strengthenLevel ?? 0}${weapon.active ? ' · 已镇库' : ''}${(weapon.reforgeCount ?? 0) > 0 ? ` · 洗练 ${weapon.reforgeCount} 次` : ''}</div>
                       <div class="muted">总效果：${renderEffectSummary(weapon.totalEffects, getResourceLabel)}</div>
                       <div class="muted">词条：${renderWeaponAffixes(weapon, getResourceLabel)}</div>
+                      <div class="muted">洗练方案：${weapon.reforgePlanSummary}</div>
                     </div>
                     <div class="inline-actions">
                       <button data-action="strengthen-weapon" data-weapon-id="${weapon.id}" ${weapon.canStrengthen ? '' : 'disabled'}>强化</button>
-                      <button class="ghost" data-action="reforge-weapon" data-weapon-id="${weapon.id}" ${weapon.canReforge ? '' : 'disabled'}>洗练</button>
+                      <button class="ghost" data-action="cycle-weapon-reforge-lock" data-weapon-id="${weapon.id}" ${weapon.canCycleLock ? '' : 'disabled'}>切换锁词</button>
+                      <button class="ghost" data-action="cycle-weapon-reforge-focus" data-weapon-id="${weapon.id}" ${(weapon.reforgeFocusOptions?.length ?? 0) > 0 ? '' : 'disabled'}>切换倾向</button>
+                      <button class="ghost" data-action="reforge-weapon" data-weapon-id="${weapon.id}" ${weapon.canReforge ? '' : 'disabled'}>按方案洗练</button>
                       <button class="secondary" data-action="dismantle-weapon" data-weapon-id="${weapon.id}">分解</button>
                     </div>
                   </div>
@@ -445,6 +467,33 @@ export function economyPanel(state, registries, deps = {}) {
                   </div>
                 `).join('')
                 : '<div class="muted">当前丹方已经全部开放，后续主要目标会转为追求高成色批次。</div>')}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title"><h3>兵丹共鸣</h3><span class="tag">${manufacturing.resonance.activeCount ?? 0} 条生效</span></div>
+        <div class="card">
+          <div class="muted">镇库兵器与入匣丹药会按流派标签自动触发套装共鸣。这样制造不再只是单件评分更高，而是要围绕爆发、守御、丹火、统御等路线去搭整套战备。</div>
+        </div>
+        <div class="mini-grid">
+          <div class="card"><div class="muted">当前共鸣</div><strong>${manufacturing.resonance.activeCount ?? 0}</strong></div>
+          <div class="card"><div class="muted">镇库兵器</div><strong>${manufacturing.arsenal.activeWeapons?.length ?? 0}</strong></div>
+          <div class="card"><div class="muted">入匣丹批</div><strong>${manufacturing.alchemy.activeBatches?.length ?? 0}</strong></div>
+          <div class="card"><div class="muted">最接近成型</div><strong>${manufacturing.resonance.upcoming?.[0]?.name ?? '已全开'}</strong></div>
+        </div>
+        <div class="grid">
+          <div class="card">
+            <div class="card-title"><strong>已激活共鸣</strong><span class="tag">${manufacturing.resonance.active?.length ?? 0} 条</span></div>
+            <div class="log-list">
+              ${renderResonanceCards(manufacturing.resonance.active, getResourceLabel)}
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title"><strong>待成型路线</strong><span class="tag">${manufacturing.resonance.upcoming?.length ?? 0} 条</span></div>
+            <div class="log-list">
+              ${renderResonanceCards(manufacturing.resonance.upcoming, getResourceLabel)}
             </div>
           </div>
         </div>

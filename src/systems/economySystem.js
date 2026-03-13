@@ -16,6 +16,8 @@ import { appendLog } from './shared/logs.js';
 import {
   brewPillRecipeInState,
   canAffordCraftCost,
+  cycleWeaponReforgeFocusInState,
+  cycleWeaponReforgeLockInState,
   dismantleWeaponInState,
   ensureCraftingState,
   ensureWorkshopOrdersInState,
@@ -169,6 +171,14 @@ export function createEconomySystem() {
 
       bus.on('action:economy/reforgeWeapon', ({ weaponId }) => {
         reforgeWeapon({ store }, weaponId);
+      });
+
+      bus.on('action:economy/cycleWeaponReforgeLock', ({ weaponId }) => {
+        cycleWeaponReforgeLock({ store }, weaponId);
+      });
+
+      bus.on('action:economy/cycleWeaponReforgeFocus', ({ weaponId }) => {
+        cycleWeaponReforgeFocus({ store }, weaponId);
       });
 
       bus.on('action:economy/dismantleWeapon', ({ weaponId }) => {
@@ -631,6 +641,9 @@ export function getManufacturingSnapshot(state, registries) {
       unlockedRecipes,
       lockedRecipes: lockedRecipes.slice(0, 6),
     },
+    resonance: {
+      ...snapshot.resonance,
+    },
     workshop: {
       ...snapshot.workshop,
     },
@@ -705,7 +718,7 @@ export function reforgeWeapon({ store }, weaponId) {
       return;
     }
 
-    const cost = getWeaponReforgeCost(weapon);
+    const cost = weapon.reforgeCost ?? getWeaponReforgeCost(weapon, weapon.reforgePlan);
     if (!payCraftCost(draft, cost)) {
       return;
     }
@@ -718,10 +731,62 @@ export function reforgeWeapon({ store }, weaponId) {
     appendLog(
       draft,
       'economy',
-      `${weapon.name} 重铸洗练完成，当前 ${updated.qualityLabel}，词条改为 ${updated.affixes?.map((effect) => effect.name).join('、') || '无词条'}`,
+      `${weapon.name} 按方案洗练完成，当前 ${updated.qualityLabel}，词条改为 ${updated.affixes?.map((effect) => effect.name).join('、') || '无词条'}`,
     );
     success = true;
   }, { type: 'economy/reforge-weapon', weaponId });
+
+  return success;
+}
+
+export function cycleWeaponReforgeLock({ store }, weaponId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCraftingState(draft);
+    const weapon = getCraftingSnapshot(draft).arsenal.inventory.find((entry) => entry.id === weaponId);
+    if (!weapon) {
+      return;
+    }
+
+    const nextPlan = cycleWeaponReforgeLockInState(draft, weaponId);
+    if (!nextPlan) {
+      return;
+    }
+
+    appendLog(
+      draft,
+      'economy',
+      `${weapon.name} 的锁词方案切换为 ${weapon.affixEffects?.find((effect) => effect.id === nextPlan.lockedAffixId)?.name ?? '未锁词条'}`,
+    );
+    success = true;
+  }, { type: 'economy/cycle-weapon-reforge-lock', weaponId });
+
+  return success;
+}
+
+export function cycleWeaponReforgeFocus({ store }, weaponId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCraftingState(draft);
+    const weapon = getCraftingSnapshot(draft).arsenal.inventory.find((entry) => entry.id === weaponId);
+    if (!weapon) {
+      return;
+    }
+
+    const nextPlan = cycleWeaponReforgeFocusInState(draft, weaponId);
+    if (!nextPlan) {
+      return;
+    }
+
+    appendLog(
+      draft,
+      'economy',
+      `${weapon.name} 的洗练倾向切换为 ${weapon.reforgeFocusOptions?.find((entry) => entry.type === nextPlan.focusType)?.label ?? '常备'}`,
+    );
+    success = true;
+  }, { type: 'economy/cycle-weapon-reforge-focus', weaponId });
 
   return success;
 }

@@ -211,6 +211,7 @@ export function createBaseState() {
       weaponEssence: 0,
       forgedWeapons: [],
       brewedPills: [],
+      reforgePlans: {},
       workshopOrders: [],
       fulfillmentHistory: [],
     },
@@ -454,6 +455,14 @@ export function normalizeState(savedState = {}) {
           baseEffects: Array.isArray(entry?.baseEffects) ? entry.baseEffects.map((effect) => ({ ...effect })) : [],
         }))
         : base.crafting.brewedPills,
+      reforgePlans: Object.fromEntries(
+        Object.entries(savedState.crafting?.reforgePlans ?? {})
+          .filter(([weaponId]) => Boolean(weaponId))
+          .map(([weaponId, plan]) => [weaponId, {
+            focusType: typeof plan?.focusType === 'string' && plan.focusType ? plan.focusType : null,
+            lockedAffixId: typeof plan?.lockedAffixId === 'string' && plan.lockedAffixId ? plan.lockedAffixId : null,
+          }]),
+      ),
       workshopOrders: Array.isArray(savedState.crafting?.workshopOrders)
         ? savedState.crafting.workshopOrders.slice(0, 6).map((entry) => ({
           ...entry,

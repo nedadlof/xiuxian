@@ -30,6 +30,12 @@ function handleEconomyUiAction({ action, element, app }) {
     case 'reforge-weapon':
       app.bus.emit('action:economy/reforgeWeapon', { weaponId: element.dataset.weaponId });
       return true;
+    case 'cycle-weapon-reforge-lock':
+      app.bus.emit('action:economy/cycleWeaponReforgeLock', { weaponId: element.dataset.weaponId });
+      return true;
+    case 'cycle-weapon-reforge-focus':
+      app.bus.emit('action:economy/cycleWeaponReforgeFocus', { weaponId: element.dataset.weaponId });
+      return true;
     case 'dismantle-weapon':
       app.bus.emit('action:economy/dismantleWeapon', { weaponId: element.dataset.weaponId });
       return true;

@@ -1,5 +1,6 @@
 import { createGameApp } from '../app.js?v=20260312-warehouse';
 import { SAVE_KEY } from '../core/save.js';
+import { getCraftingSnapshot } from '../systems/shared/crafting.js';
 import { renderGame } from '../ui/renderApp.js?v=20260312-warehouse';
 import { APP_TABS } from '../ui/tabConfig.js';
 
@@ -378,6 +379,7 @@ async function runSmoke() {
       assert(root.textContent.includes('锻炉百兵'), '经济页未渲染锻炉百兵');
       assert(root.textContent.includes('丹阁百方'), '经济页未渲染丹阁百方');
       assert(root.textContent.includes('工坊订单'), '经济页未渲染工坊订单');
+      assert(root.textContent.includes('兵丹共鸣'), '经济页未渲染兵丹共鸣');
       const beforeState = harness.app.store.getState();
       const beforeWeaponCount = beforeState.crafting?.forgedWeapons?.length ?? 0;
       const beforePillCount = beforeState.crafting?.brewedPills?.length ?? 0;
@@ -385,13 +387,13 @@ async function runSmoke() {
       const beforeReputation = beforeState.commissions?.reputation ?? 0;
       const beforeAffairsCredit = beforeState.commissions?.affairsCredit ?? 0;
       const beforeOrderHistory = beforeState.crafting?.fulfillmentHistory?.length ?? 0;
-      clickAction('forge-weapon', (element) => !element.disabled);
-      clickAction('forge-weapon', (element) => !element.disabled);
+      clickAction('forge-weapon', (element) => element.dataset.blueprintId === 'greenvine-fan' && !element.disabled);
+      clickAction('forge-weapon', (element) => element.dataset.blueprintId === 'xuanzhu-sword' && !element.disabled);
       let craftingState = harness.app.store.getState();
       assert((craftingState.crafting?.forgedWeapons?.length ?? 0) >= beforeWeaponCount + 2, '锻造未生成武器库存');
       const forgedWeapons = craftingState.crafting.forgedWeapons ?? [];
-      const dismantleTargetId = forgedWeapons[0]?.id;
-      const strengthenTargetId = forgedWeapons[1]?.id;
+      const strengthenTargetId = forgedWeapons.find((weapon) => weapon.blueprintId === 'greenvine-fan')?.id;
+      const dismantleTargetId = forgedWeapons.find((weapon) => weapon.id !== strengthenTargetId)?.id;
       assert(dismantleTargetId && strengthenTargetId, '锻造后武器数量不足以验证分解与强化');
       clickAction('dismantle-weapon', (element) => element.dataset.weaponId === dismantleTargetId);
       craftingState = harness.app.store.getState();
@@ -405,14 +407,25 @@ async function runSmoke() {
         draft.crafting.weaponEssence = Math.max(draft.crafting?.weaponEssence ?? 0, 120);
         draft.commissions.affairsCredit = Math.max(draft.commissions?.affairsCredit ?? 0, 120);
       }, { type: 'smoke/crafting-reforge-buffer' });
+      clickAction('cycle-weapon-reforge-lock', (element) => element.dataset.weaponId === strengthenTargetId && !element.disabled);
+      clickAction('cycle-weapon-reforge-focus', (element) => element.dataset.weaponId === strengthenTargetId && !element.disabled);
+      craftingState = harness.app.store.getState();
+      const reforgePlan = craftingState.crafting?.reforgePlans?.[strengthenTargetId] ?? null;
+      assert(reforgePlan?.lockedAffixId, `武器锁词方案未写入: ${JSON.stringify(reforgePlan)}`);
+      assert(reforgePlan?.focusType, `武器洗练倾向未写入: ${JSON.stringify(reforgePlan)}`);
       const reforgeBefore = (craftingState.crafting?.forgedWeapons ?? []).find((weapon) => weapon.id === strengthenTargetId)?.reforgeCount ?? 0;
       clickAction('reforge-weapon', (element) => element.dataset.weaponId === strengthenTargetId && !element.disabled);
       craftingState = harness.app.store.getState();
       const reforgeAfter = (craftingState.crafting?.forgedWeapons ?? []).find((weapon) => weapon.id === strengthenTargetId)?.reforgeCount ?? 0;
       assert(reforgeAfter > reforgeBefore, `武器洗练未生效: before=${reforgeBefore}, after=${reforgeAfter}`);
-      clickAction('brew-pill', (element) => !element.disabled);
+      clickAction('brew-pill', (element) => element.dataset.recipeId === 'qinglan-yangqi' && !element.disabled);
       craftingState = harness.app.store.getState();
       assert((craftingState.crafting?.brewedPills?.length ?? 0) > beforePillCount, '炼丹未生成成药批次');
+      const craftingSnapshot = getCraftingSnapshot(craftingState);
+      assert(
+        craftingSnapshot.resonance?.active?.some((entry) => entry.id === 'verdant-revival'),
+        `兵丹共鸣未按预期激活: ${JSON.stringify(craftingSnapshot.resonance?.active?.map((entry) => entry.id) ?? [])}`,
+      );
       clickAction('fulfill-workshop-order', (element) => !element.disabled);
       craftingState = harness.app.store.getState();
       assert((craftingState.crafting?.fulfillmentHistory?.length ?? 0) > beforeOrderHistory, '工坊订单未写入交付记录');
@@ -420,8 +433,8 @@ async function runSmoke() {
       assert((craftingState.commissions?.affairsCredit ?? 0) >= beforeAffairsCredit, '工坊订单异常扣减事务点');
       assert(root.textContent.includes('器库库存'), '经济页未渲染器库库存');
       assert(root.textContent.includes('成药库存'), '经济页未渲染成药库存');
-      return `锻造库存 ${beforeWeaponCount} -> ${craftingState.crafting?.forgedWeapons?.length ?? 0}，器魂 ${beforeEssence} -> ${craftingState.crafting?.weaponEssence ?? 0}，强化 ${strengthenBefore} -> ${strengthenAfter}，洗练 ${reforgeBefore} -> ${reforgeAfter}，成药 ${beforePillCount} -> ${craftingState.crafting?.brewedPills?.length ?? 0}，声望 ${beforeReputation} -> ${craftingState.commissions?.reputation ?? 0}`;
-    });
+      return `锻造库存 ${beforeWeaponCount} -> ${craftingState.crafting?.forgedWeapons?.length ?? 0}，器魂 ${beforeEssence} -> ${craftingState.crafting?.weaponEssence ?? 0}，强化 ${strengthenBefore} -> ${strengthenAfter}，洗练 ${reforgeBefore} -> ${reforgeAfter}，共鸣=${craftingSnapshot.resonance?.active?.map((entry) => entry.name).join('/') || 'none'}，成药 ${beforePillCount} -> ${craftingState.crafting?.brewedPills?.length ?? 0}，声望 ${beforeReputation} -> ${craftingState.commissions?.reputation ?? 0}`;
+      });
 
     await runCase('Warehouse Seal And Strategy Flow', async () => {
       harness.ensureResources({
