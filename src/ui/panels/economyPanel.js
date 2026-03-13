@@ -1,5 +1,6 @@
 import { getEconomyOverviewSnapshot, getEconomySnapshot } from '../../systems/economySystem.js';
 import { getTradeSnapshot } from '../../systems/tradeSystem.js';
+import { renderEntityThumb } from '../entityVisuals.js';
 
 const SPECIAL_COST_LABELS = Object.freeze({
   weaponEssence: '器魂',
@@ -251,6 +252,14 @@ export function economyPanel(state, registries, deps = {}) {
                     `主效：${renderEffectSummary(weapon.baseEffects, getResourceLabel)}`,
                     `词条：${renderWeaponAffixes(weapon, getResourceLabel)}`,
                   ])}>
+                    ${renderEntityThumb({
+                      kind: 'weapon',
+                      title: weapon.name,
+                      subtitle: weapon.blueprint?.modelProfile ?? '',
+                      rarity: weapon.blueprint?.rarity ?? 'common',
+                      badge: weapon.name,
+                      tone: weapon.qualityLabel ?? '',
+                    })}
                     <div>
                       <strong>${weapon.name}</strong>
                       <div class="muted">${renderRarityLabel(weapon.blueprint?.rarity)} · ${weapon.qualityLabel} · 强化 +${weapon.strengthenLevel ?? 0}</div>
@@ -276,6 +285,14 @@ export function economyPanel(state, registries, deps = {}) {
                     `洗练花费：${renderWorkshopCost(weapon.reforgeCost, formatNumber, getResourceLabel)}`,
                     `分解返还：${renderWorkshopCost(weapon.dismantleReward, formatNumber, getResourceLabel)}`,
                   ])}>
+                  ${renderEntityThumb({
+                    kind: 'weapon',
+                    title: weapon.name,
+                    subtitle: weapon.blueprint?.modelProfile ?? '',
+                    rarity: weapon.blueprint?.rarity ?? 'common',
+                    badge: weapon.name,
+                    tone: weapon.qualityLabel ?? '',
+                  })}
                   <div>
                       <strong>${weapon.name}</strong>
                       <div class="muted">${weapon.qualityLabel} · ${renderRarityLabel(weapon.blueprint?.rarity)} · 强化 +${weapon.strengthenLevel ?? 0}${weapon.active ? ' · 已镇库' : ''}${(weapon.reforgeCount ?? 0) > 0 ? ` · 洗练 ${weapon.reforgeCount} 次` : ''}</div>
@@ -309,6 +326,14 @@ export function economyPanel(state, registries, deps = {}) {
                     `锻造消耗：${renderWorkshopCost(blueprint.cost, formatNumber, getResourceLabel)}`,
                     `开放条件：${renderRequirements(blueprint.requirements)}`,
                   ])}>
+                    ${renderEntityThumb({
+                      kind: 'weapon',
+                      title: blueprint.name,
+                      subtitle: blueprint.modelProfile ?? '',
+                      rarity: blueprint.rarity ?? 'common',
+                      badge: blueprint.name,
+                      tone: blueprint.modelProfile ?? '',
+                    })}
                     <div>
                       <strong>${blueprint.name}</strong>
                       <div class="muted">${renderRarityLabel(blueprint.rarity)} · ${blueprint.modelProfile}</div>
@@ -414,6 +439,14 @@ export function economyPanel(state, registries, deps = {}) {
                     `成色：${batch.potencyLabel} (${Math.round((batch.potencyRoll ?? 1) * 100)}%)`,
                     `效果：${renderEffectSummary(batch.totalEffects, getResourceLabel)}`,
                   ])}>
+                    ${renderEntityThumb({
+                      kind: 'pill',
+                      title: batch.name,
+                      subtitle: batch.recipe?.profile ?? '',
+                      rarity: batch.recipe?.rarity ?? 'common',
+                      badge: batch.name,
+                      tone: batch.potencyLabel ?? '',
+                    })}
                     <div>
                       <strong>${batch.name}</strong>
                       <div class="muted">${renderRarityLabel(batch.recipe?.rarity)} · ${batch.potencyLabel} · 批量 ${batch.servings ?? 1}</div>
@@ -435,6 +468,14 @@ export function economyPanel(state, registries, deps = {}) {
                     `药性：${batch.recipe?.profile ?? '暂无'}`,
                     `效果：${renderEffectSummary(batch.totalEffects, getResourceLabel)}`,
                   ])}>
+                    ${renderEntityThumb({
+                      kind: 'pill',
+                      title: batch.name,
+                      subtitle: batch.recipe?.profile ?? '',
+                      rarity: batch.recipe?.rarity ?? 'common',
+                      badge: batch.name,
+                      tone: batch.potencyLabel ?? '',
+                    })}
                     <div>
                       <strong>${batch.name}</strong>
                       <div class="muted">${batch.potencyLabel} · ${renderRarityLabel(batch.recipe?.rarity)} · 批量 ${batch.servings ?? 1}${batch.active ? ' · 当前生效' : ''}</div>
@@ -460,6 +501,14 @@ export function economyPanel(state, registries, deps = {}) {
                     `炼制消耗：${renderWorkshopCost(recipe.cost, formatNumber, getResourceLabel)}`,
                     `开放条件：${renderRequirements(recipe.requirements)}`,
                   ])}>
+                    ${renderEntityThumb({
+                      kind: 'pill',
+                      title: recipe.name,
+                      subtitle: recipe.profile ?? '',
+                      rarity: recipe.rarity ?? 'common',
+                      badge: recipe.name,
+                      tone: recipe.profile ?? '',
+                    })}
                     <div>
                       <strong>${recipe.name}</strong>
                       <div class="muted">${renderRarityLabel(recipe.rarity)} · ${recipe.profile}</div>

@@ -4014,3 +4014,58 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 16/16`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-13 古典卷轴 UI 重构与启动容错
+
+- Main goal:
+  - replace the previous overly rounded card-heavy presentation with a calmer classical xianxia page language
+  - keep the tone simple and readable while preserving the high-information idle game loops
+  - prevent the user from seeing a blank page when module bootstrap fails
+
+- Visual redesign:
+  - upgraded `styles/theme.css`
+  - shifted the global palette to parchment / wood / ink tones
+  - reduced the mobile-game neon/card feel and rebuilt the shell around:
+    - paper-like panels
+    - tablet-style buttons
+    - lighter borders
+    - calmer spacing and stronger typography hierarchy
+  - the app shell now reads more like a sect record / scroll rather than a dashboard wall
+
+- Boot safety and cache refresh:
+  - upgraded `index.html`
+  - upgraded `smoke.html`
+  - upgraded `src/main.js`
+  - upgraded `src/ui/renderApp.js`
+  - upgraded `src/ui/panelRenderers.js`
+  - upgraded `src/ui/appShellView.js`
+  - startup now uses guarded dynamic module loading so parse/load failures render a visible error panel instead of leaving the page blank
+  - refreshed module version params to reduce stale-cache startup issues after UI refactors
+
+- Image surface expansion:
+  - kept the generated in-game art direction from `src/ui/entityVisuals.js`
+  - upgraded these surfaces to show image thumbnails more consistently:
+    - overview resources
+    - economy forging / alchemy / workshop entries
+    - disciples candidate and owned roster cards
+    - beasts routes / lineup / beast list
+    - barracks recruitable unit cards
+    - warehouse pressure / strategy / seal cards
+    - war stage cards and latest battle report
+  - this keeps weapons, pills, resources, characters, beasts and battle targets visually identifiable without introducing new asset-management complexity
+
+- Interaction and layout result:
+  - war and warehouse pages now better match the simplified battle flow already implemented earlier
+  - buttons remain bound to the same `data-action` contracts, so the redesign does not change gameplay logic
+  - the top shell now exposes current sect context and quick stats while keeping save/reset nearby
+
+- Verified locally:
+  - `node --check src/ui/appShellView.js`
+  - `node --check src/ui/renderApp.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/panels/warehousePanel.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `python tools/run_ui_smoke.py --timeout 25`
+  - result:
+    - `SMOKE PASS 16/16`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression

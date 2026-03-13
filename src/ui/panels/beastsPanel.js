@@ -1,4 +1,5 @@
 import { getBeastMenagerieSnapshot } from '../../systems/disciplesBeastsSystem.js';
+import { renderEntityThumb } from '../entityVisuals.js';
 
 function formatBondPercent(value) {
   const safeValue = Number(value) || 0;
@@ -305,6 +306,14 @@ export function beastsPanel(state, registries, deps = {}) {
               `预计耗时：${formatDuration(route.durationSeconds)}`,
               `预计收益：${renderResourceMap(route.rewardPreview, getResourceLabel)}`,
             ])}>
+              ${renderEntityThumb({
+                kind: 'beast',
+                title: route.recommendedBeast?.name ?? route.name,
+                subtitle: route.recommendedBeast?.archetype ?? route.qualityLabel ?? '',
+                rarity: route.qualityLabel?.includes('绝') ? 'legendary' : (route.qualityLabel?.includes('上') ? 'epic' : 'rare'),
+                badge: route.recommendedBeast?.name ?? route.name,
+                tone: (route.preferredTags ?? []).join('/'),
+              })}
               <div>
                 <strong>${route.name}</strong>
                 <div class="muted">${route.description}</div>
@@ -365,6 +374,14 @@ export function beastsPanel(state, registries, deps = {}) {
                 `下一级觉醒：${formatCostSummary?.(beast.awakeningCost) ?? ''}`,
                 `灌灵消耗：${formatCostSummary?.(beast.bondCost) ?? ''}`,
               ])}>
+                ${renderEntityThumb({
+                  kind: 'beast',
+                  title: beast.name,
+                  subtitle: beast.archetype ?? beast.tier ?? '',
+                  rarity: beast.unlocked ? (beast.tier?.includes('凶') || beast.tier?.includes('上古') ? 'legendary' : 'rare') : 'common',
+                  badge: beast.name,
+                  tone: (beast.favoredTags ?? []).join('/'),
+                })}
                 <div>
                   <strong>${beast.name}</strong>
                   <div class="muted">${beast.unlocked ? (beast.active ? '已激活' : '已解锁') : '未解锁'} · ${beast.tier} · ${beast.archetype ?? '异兽'}${inRecommendedLineup ? ' · 推荐上阵' : ''}</div>

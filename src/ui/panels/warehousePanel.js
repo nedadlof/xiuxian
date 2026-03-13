@@ -1,4 +1,5 @@
 import { getWarehouseSnapshot } from '../../systems/warehouseSystem.js';
+import { renderEntityThumb } from '../entityVisuals.js?v=20260313-ui-refresh';
 
 function formatPercent(value = 0, digits = 0) {
   return `${(Math.max(Number(value) || 0, 0) * 100).toFixed(digits)}%`;
@@ -14,10 +15,19 @@ function renderPressureSection(warehouse, deps = {}) {
     <div class="log-list">
       ${warehouse.pressureEntries.slice(0, 4).map((entry) => {
         const percent = Math.min(Math.round((entry.ratio ?? 0) * 100), 100);
+        const label = getResourceLabel(entry.resourceId);
         return `
           <div class="log-item">
-            <div style="flex:1;">
-              <strong>${getResourceLabel(entry.resourceId)}</strong>
+            ${renderEntityThumb({
+              kind: 'resource',
+              title: label,
+              subtitle: '库存压力',
+              badge: label,
+              tone: entry.resourceId,
+              className: 'entity-thumb-small',
+            })}
+            <div>
+              <strong>${label}</strong>
               <div class="muted">库存 ${formatNumber(entry.current)}/${formatNumber(entry.cap)}</div>
               <div class="war-progress-track"><span class="war-progress-fill ally" style="width:${percent}%"></span></div>
             </div>
@@ -42,6 +52,14 @@ function renderStrategySection(warehouse, deps = {}) {
           ...strategy.effectSummary,
           strategy.unlocked ? '状态：已解锁' : `解锁条件：总仓阶达到 ${strategy.requiredLevel}`,
         ])}>
+          ${renderEntityThumb({
+            kind: 'generic',
+            title: strategy.name,
+            subtitle: '仓储法策',
+            badge: strategy.name,
+            tone: strategy.id,
+            className: 'entity-thumb-small',
+          })}
           <div>
             <strong>${strategy.name}</strong>
             <div class="muted">${strategy.unlocked ? strategy.description : `总仓阶 ${warehouse.totalLevel}/${strategy.requiredLevel}`}</div>
@@ -74,19 +92,30 @@ function renderSealSection(warehouse, deps = {}) {
           ...seal.effectSummary,
           `封存成本：${formatCostSummary(seal.cost)}`,
         ])}>
-          <div class="card-title">
-            <strong>${seal.name}</strong>
-            <span class="tag">仓阶 ${seal.level}/${seal.maxLevel}</span>
-          </div>
-          <div class="muted">已封存 ${seal.sealCount} 次 · ${seal.nextThreshold == null ? '已达满阶' : `下阶还需 ${seal.sealsToNext} 次`}</div>
-          <div class="war-progress-track"><span class="war-progress-fill ally" style="width:${seal.progressPercent}%"></span></div>
-          <div class="muted">封存材料：${formatCostSummary(seal.cost)}</div>
-          <div class="muted">
-            ${seal.resourceEntries.map((entry) => `${getResourceLabel(entry.resourceId)} ${formatNumber(entry.current)}/${formatNumber(entry.amount)}`).join(' · ')}
-          </div>
-          <div class="inline-actions">
-            <button ${seal.affordable ? '' : 'disabled'} data-action="warehouse-seal" data-id="${seal.id}">封存入库</button>
-            <span class="tag">压力 ${Math.round((seal.pressureScore ?? 0) * 100)}%</span>
+          <div class="entity-row">
+            ${renderEntityThumb({
+              kind: 'resource',
+              title: seal.name,
+              subtitle: '封存库位',
+              badge: seal.name,
+              tone: seal.id,
+            })}
+            <div class="entity-copy">
+              <div class="card-title">
+                <strong>${seal.name}</strong>
+                <span class="tag">仓阶 ${seal.level}/${seal.maxLevel}</span>
+              </div>
+              <div class="muted">已封存 ${seal.sealCount} 次 · ${seal.nextThreshold == null ? '已达满阶' : `下阶还需 ${seal.sealsToNext} 次`}</div>
+              <div class="war-progress-track"><span class="war-progress-fill ally" style="width:${seal.progressPercent}%"></span></div>
+              <div class="muted">封存材料：${formatCostSummary(seal.cost)}</div>
+              <div class="muted">
+                ${seal.resourceEntries.map((entry) => `${getResourceLabel(entry.resourceId)} ${formatNumber(entry.current)}/${formatNumber(entry.amount)}`).join(' · ')}
+              </div>
+              <div class="inline-actions">
+                <button ${seal.affordable ? '' : 'disabled'} data-action="warehouse-seal" data-id="${seal.id}">封存入库</button>
+                <span class="tag">压力 ${Math.round((seal.pressureScore ?? 0) * 100)}%</span>
+              </div>
+            </div>
           </div>
         </div>
       `).join('')}

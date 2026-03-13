@@ -1,7 +1,7 @@
 import { getTransientUiFeedback, setTransientUiFeedback } from './transientFeedback.js';
 import { tooltipAttr } from './tooltipAttr.js';
-import { renderAppShell } from './appShellView.js';
-import { APP_TABS, createPanelRenderers } from './panelRenderers.js';
+import { renderAppShell } from './appShellView.js?v=20260313-ui-refresh';
+import { APP_TABS, createPanelRenderers } from './panelRenderers.js?v=20260313-ui-refresh';
 import { hydrateRenderedUi } from './renderRuntime.js';
 import { getTabContent } from './tabRouter.js?v=20260310-11';
 import { DEFAULT_TAB } from './tabConfig.js';
@@ -56,6 +56,15 @@ export function renderGame(root, app, uiState = {}) {
       panels,
     }),
     tabs: APP_TABS,
+    shellMeta: {
+      summary: '卷轴式界面已经按养成、战斗、制造三条主线重新收束，减少了碎片卡片感，同时保留战利品与各系统的联动逻辑。',
+      quickStats: [
+        { label: '宗门纪元', value: state.scripture.era },
+        { label: '已通关', value: `${state.war.clearedStages.length} 关` },
+        { label: '活跃灵兽', value: `${state.beasts.activeIds.length}/3` },
+        { label: '宗务声望', value: formatNumber(state.commissions?.reputation ?? 0) },
+      ],
+    },
   });
 
   hydrateRenderedUi({

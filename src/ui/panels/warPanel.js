@@ -6,6 +6,7 @@ import {
   getAutoBattleSpeedOptions,
   getAutoBattleSpeedMeta,
 } from '../warBattleUi.js';
+import { renderEntityThumb } from '../entityVisuals.js?v=20260313-ui-refresh';
 
 function rewardLine(label, reward = {}, formatCostSummary) {
   const summary = formatCostSummary(reward);
@@ -44,6 +45,13 @@ function getStagePressureMeta(powerGap = 0) {
   };
 }
 
+function getStageThumbKind(stage) {
+  if ((stage?.encounterType ?? '').includes('boss') || (stage?.difficultyLabel ?? '').includes('古')) {
+    return 'beast';
+  }
+  return 'unit';
+}
+
 function renderStageCard(stage, deps = {}) {
   const {
     tooltipAttr,
@@ -64,19 +72,31 @@ function renderStageCard(stage, deps = {}) {
       stage.progressionGoal ? `推进目标：${stage.progressionGoal}` : null,
       stage.unlocked ? '状态：可挑战' : `解锁条件：${stage.lockReasons?.join(' · ') ?? '未满足'}`,
     ])}>
-      <div class="card-title">
-        <strong>${stage.name}</strong>
-        <span class="tag">${stage.current ? '当前目标' : getEncounterTypeLabel(stage.encounterType)}</span>
-      </div>
-      <div class="muted">${stage.world} · ${stage.terrain} · ${stage.difficultyLabel ?? '常规推进'}</div>
-      ${rewardLine('基础奖励', stage.rewardPreview?.baseReward ?? stage.reward, formatCostSummary)}
-      ${rewardLine('固定掉落', stage.rewardPreview?.guaranteedLoot ?? {}, formatCostSummary)}
-      ${rewardLine('首通奖励', stage.rewardPreview?.firstClearBonus ?? {}, formatCostSummary)}
-      ${linkedRewardLine}
-      <div class="detail-list">
-        <span>建议军势 ${formatNumber(stageTargetPower)}</span>
-        <span>${stage.cleared ? '已通关，可继续刷取资源' : (stage.progressionGoal ?? '首通会额外掉落材料')}</span>
-        <span>${(stage.mechanics?.length ?? 0) > 0 ? `机制 ${stage.mechanics.length} 项` : '无特殊机制'}</span>
+      <div class="entity-row">
+        ${renderEntityThumb({
+          kind: getStageThumbKind(stage),
+          title: stage.name,
+          subtitle: stage.terrain ?? stage.world ?? '',
+          rarity: stage.cleared ? 'rare' : ((stage.difficultyLabel ?? '').includes('后') ? 'epic' : 'common'),
+          badge: stage.name,
+          tone: `${stage.world ?? ''}/${stage.terrain ?? ''}/${stage.encounterType ?? ''}`,
+        })}
+        <div class="entity-copy">
+          <div class="card-title">
+            <strong>${stage.name}</strong>
+            <span class="tag">${stage.current ? '当前目标' : getEncounterTypeLabel(stage.encounterType)}</span>
+          </div>
+          <div class="muted">${stage.world} · ${stage.terrain} · ${stage.difficultyLabel ?? '常规推进'}</div>
+          ${rewardLine('基础奖励', stage.rewardPreview?.baseReward ?? stage.reward, formatCostSummary)}
+          ${rewardLine('固定掉落', stage.rewardPreview?.guaranteedLoot ?? {}, formatCostSummary)}
+          ${rewardLine('首通奖励', stage.rewardPreview?.firstClearBonus ?? {}, formatCostSummary)}
+          ${linkedRewardLine}
+          <div class="detail-list">
+            <span>建议军势 ${formatNumber(stageTargetPower)}</span>
+            <span>${stage.cleared ? '已通关，可继续刷取资源' : (stage.progressionGoal ?? '首通会额外掉落材料')}</span>
+            <span>${(stage.mechanics?.length ?? 0) > 0 ? `机制 ${stage.mechanics.length} 项` : '无特殊机制'}</span>
+          </div>
+        </div>
       </div>
       <div class="inline-actions">
         <button class="${stage.current ? 'secondary' : 'ghost'}" data-action="select-stage" data-id="${stage.id}">${stage.current ? '当前目标' : '设为目标'}</button>
@@ -173,13 +193,25 @@ function renderLatestReportCard(report, deps = {}) {
         `总奖励：${formatCostSummary(report.reward)}`,
         `弟子/灵兽/产业联动：${formatCostSummary(report.rewardBreakdown?.linkedReward ?? {})}`,
       ])}>
-        <div class="card-title"><strong>${report.stageName}</strong><span class="tag">${getWarEndingReasonLabel(report)}</span></div>
-        <div class="muted">总奖励：${formatCostSummary(report.reward)}</div>
-        ${rewardLine('基础奖励', report.rewardBreakdown?.baseReward ?? {}, formatCostSummary)}
-        ${rewardLine('随机掉落', report.rewardBreakdown?.randomLoot ?? {}, formatCostSummary)}
-        ${rewardLine('联动掉落', report.rewardBreakdown?.linkedReward ?? {}, formatCostSummary)}
-        <div class="muted">出征弟子：${report.expeditionSupport?.memberNames?.join(' · ') || '未派出弟子'}</div>
-        <div class="muted">灵兽/羁绊联动：灵兽 ${report.expeditionSupport?.bondCount ?? 0} 条羁绊 · 总共鸣 ${report.expeditionSupport?.totalResonance ?? 0}</div>
+        <div class="entity-row">
+          ${renderEntityThumb({
+            kind: report.victory ? 'unit' : 'beast',
+            title: report.stageName,
+            subtitle: getWarReportOutcomeLabel(report),
+            rarity: report.victory ? 'rare' : 'common',
+            badge: report.stageName,
+            tone: `${report.stageName}/${report.endingReason ?? ''}`,
+          })}
+          <div class="entity-copy">
+            <div class="card-title"><strong>${report.stageName}</strong><span class="tag">${getWarEndingReasonLabel(report)}</span></div>
+            <div class="muted">总奖励：${formatCostSummary(report.reward)}</div>
+            ${rewardLine('基础奖励', report.rewardBreakdown?.baseReward ?? {}, formatCostSummary)}
+            ${rewardLine('随机掉落', report.rewardBreakdown?.randomLoot ?? {}, formatCostSummary)}
+            ${rewardLine('联动掉落', report.rewardBreakdown?.linkedReward ?? {}, formatCostSummary)}
+            <div class="muted">出征弟子：${report.expeditionSupport?.memberNames?.join(' · ') || '未派出弟子'}</div>
+            <div class="muted">灵兽/羁绊联动：灵兽 ${report.expeditionSupport?.bondCount ?? 0} 条羁绊 · 总共鸣 ${report.expeditionSupport?.totalResonance ?? 0}</div>
+          </div>
+        </div>
       </div>
     </section>
   `;

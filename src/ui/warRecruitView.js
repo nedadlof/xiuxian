@@ -1,3 +1,5 @@
+import { renderEntityThumb } from './entityVisuals.js';
+
 function formatModifierPercent(value) {
   const percent = Math.round((value ?? 0) * 1000) / 10;
   const sign = percent >= 0 ? '+' : '';
@@ -39,6 +41,13 @@ function renderRecruitUnitCard(unit, options = {}) {
       `\u5175\u79cd\u514b\u5236\uff1a${formatCounterSummary(unit)}`,
       `\u62db\u52df\u82b1\u8d39\uff1a${formatCostSummary(unit.trainingCost)}`,
     ])}>
+      ${renderEntityThumb({
+        kind: 'unit',
+        title: unit.name,
+        subtitle: unit.tags?.map((tag) => getTagLabel(tag)).join(' / ') ?? '',
+        badge: unit.name,
+        tone: unit.tags?.join('/') ?? '',
+      })}
       <div>
         <strong>${unit.name}</strong>
         <div class="muted">\u5f53\u524d ${unit.count} \u4eba \u00b7 \u7ad9\u4f4d\u7b2c ${unit.row} \u6392</div>

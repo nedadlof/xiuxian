@@ -96,6 +96,23 @@
         });
       })();
     </script>
-    <script type="module" src="./src/dev/uiSmoke.js?v=20260311-1"></script>
+    <script type="module">
+      import('./src/dev/uiSmoke.js?v=20260313-ui-refresh').catch((error) => {
+        console.error(error);
+        const statusEl = document.getElementById('smoke-status');
+        const summaryEl = document.getElementById('smoke-summary');
+        const reportEl = document.getElementById('smoke-report');
+        if (statusEl) statusEl.textContent = '启动失败';
+        if (summaryEl) summaryEl.textContent = '模块加载失败';
+        if (reportEl) {
+          reportEl.innerHTML = `
+            <div class="card smoke-result fail">
+              <div class="card-title"><strong>Smoke Bootstrap</strong><span class="tag">FAIL</span></div>
+              <pre style="margin:0;white-space:pre-wrap;word-break:break-word;">${(error?.stack || error?.message || String(error))}</pre>
+            </div>
+          `;
+        }
+      });
+    </script>
   </body>
 </html>

@@ -1,5 +1,5 @@
-import { createGameApp } from './app.js?v=20260310-11';
-import { renderGame } from './ui/renderApp.js?v=20260310-11';
+import { createGameApp } from './app.js?v=20260313-ui-refresh';
+import { renderGame } from './ui/renderApp.js?v=20260313-ui-refresh';
 
 const root = document.getElementById('app');
 const uiState = {};

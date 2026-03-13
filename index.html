@@ -11,6 +11,31 @@
   </head>
   <body>
     <div id="app"></div>
-  <script type="module" src="./src/main.js?v=20260310-11"></script>
+    <script type="module">
+      const root = document.getElementById('app');
+
+      const showBootstrapError = (error) => {
+        if (!root) return;
+        const message = error instanceof Error ? (error.stack || error.message) : String(error);
+        root.innerHTML = `
+          <div class="panel">
+            <div class="panel-title">
+              <h3>页面启动失败</h3>
+              <span class="tag">已拦截启动异常</span>
+            </div>
+            <pre id="bootstrap-error" style="white-space:pre-wrap;word-break:break-word;margin:0;"></pre>
+          </div>
+        `;
+        const pre = document.getElementById('bootstrap-error');
+        if (pre) {
+          pre.textContent = message;
+        }
+      };
+
+      import('./src/main.js?v=20260313-ui-refresh').catch((error) => {
+        console.error(error);
+        showBootstrapError(error);
+      });
+    </script>
   </body>
 </html>

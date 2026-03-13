@@ -1,4 +1,5 @@
 import { getEconomyOverviewSnapshot } from '../../systems/economySystem.js';
+import { renderEntityThumb } from '../entityVisuals.js';
 
 function renderResourceBar(state, deps = {}) {
   const {
@@ -10,8 +11,19 @@ function renderResourceBar(state, deps = {}) {
 
   return `<div class="mini-grid">${resourceDisplayOrder.map((key) => `
     <div class="card" ${tooltipAttr([`资源：${getResourceLabel(key)}`, `当前数量：${formatNumber(state.resources[key] ?? 0)}`])}>
-      <div class="muted">${getResourceLabel(key)}</div>
-      <strong>${formatNumber(state.resources[key] ?? 0)}</strong>
+      <div class="entity-row entity-row-compact">
+        ${renderEntityThumb({
+          kind: 'resource',
+          title: getResourceLabel(key),
+          badge: getResourceLabel(key),
+          tone: key,
+          className: 'entity-thumb-small',
+        })}
+        <div class="entity-copy">
+          <div class="muted">${getResourceLabel(key)}</div>
+          <strong>${formatNumber(state.resources[key] ?? 0)}</strong>
+        </div>
+      </div>
     </div>
   `).join('')}</div>`;
 }

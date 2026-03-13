@@ -1,5 +1,6 @@
 import { getExpeditionBondSnapshot } from '../../data/expeditionBonds.js';
 import { getDisciplesSnapshot } from '../../systems/disciplesBeastsSystem.js';
+import { renderEntityThumb } from '../entityVisuals.js';
 
 function sortByRarity(getRarityRank, left, right) {
   const rankGap = (getRarityRank?.(right.rarity) ?? 0) - (getRarityRank?.(left.rarity) ?? 0);
@@ -253,6 +254,14 @@ export function disciplesPanel(state, registries, deps = {}) {
               disciple.recruitFlavor ? `招募传闻：${disciple.recruitFlavor}` : null,
               disciple.inspiration ? `角色包装：${disciple.inspiration}` : null,
             ])}>
+              ${renderEntityThumb({
+                kind: 'disciple',
+                title: disciple.name,
+                subtitle: disciple.title ?? disciple.archetype ?? '',
+                rarity: disciple.rarity,
+                badge: disciple.name,
+                tone: disciple.faction ?? disciple.archetype ?? '',
+              })}
               <div>
                 <div class="card-title">
                   <strong>${disciple.name}</strong>
@@ -295,6 +304,14 @@ export function disciplesPanel(state, registries, deps = {}) {
               `当前倍率：x${(disciple.effectMultiplier ?? 1).toFixed(2)}`,
               disciple.canAdvanceResonance ? `突破后倍率：x${(disciple.nextEffectMultiplier ?? disciple.effectMultiplier ?? 1).toFixed(2)}` : null,
             ])}>
+              ${renderEntityThumb({
+                kind: 'disciple',
+                title: disciple.name,
+                subtitle: disciple.title ?? disciple.archetype ?? '',
+                rarity: disciple.rarity,
+                badge: disciple.name,
+                tone: disciple.faction ?? disciple.archetype ?? '',
+              })}
               <div>
                 <div class="card-title">
                   <strong>${disciple.name}</strong>
