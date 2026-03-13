@@ -18,10 +18,15 @@ import {
   canAffordCraftCost,
   dismantleWeaponInState,
   ensureCraftingState,
+  ensureWorkshopOrdersInState,
+  fulfillWorkshopOrderInState,
   forgeWeaponInState,
   getCraftingSnapshot,
+  getWeaponReforgeCost,
   getWeaponStrengthenCost,
   payCraftCost,
+  refreshWorkshopOrdersInState,
+  reforgeWeaponInState,
   strengthenWeaponInState,
 } from './shared/crafting.js';
 import { collectUnlockedEffects, sumEffects } from './shared/effectResolver.js';
@@ -125,6 +130,7 @@ export function createEconomySystem() {
         ensureBuildingState(draft, registries);
         ensurePreparationState(draft);
         ensureCraftingState(draft);
+        ensureWorkshopOrdersInState(draft);
         syncWorkforceState(draft);
         updateStorageCaps(draft, registries);
       }, { type: 'economy/setup' });
@@ -161,6 +167,10 @@ export function createEconomySystem() {
         strengthenWeapon({ store }, weaponId);
       });
 
+      bus.on('action:economy/reforgeWeapon', ({ weaponId }) => {
+        reforgeWeapon({ store }, weaponId);
+      });
+
       bus.on('action:economy/dismantleWeapon', ({ weaponId }) => {
         dismantleWeapon({ store }, weaponId);
       });
@@ -168,12 +178,21 @@ export function createEconomySystem() {
       bus.on('action:economy/brewPill', ({ recipeId }) => {
         brewPill({ store }, recipeId);
       });
+
+      bus.on('action:economy/refreshWorkshopOrders', () => {
+        refreshWorkshopOrders({ store });
+      });
+
+      bus.on('action:economy/fulfillWorkshopOrder', ({ orderId }) => {
+        fulfillWorkshopOrder({ store }, orderId);
+      });
     },
     tick({ store, registries }, deltaSeconds) {
       store.update((draft) => {
         ensureBuildingState(draft, registries);
         ensurePreparationState(draft);
         ensureCraftingState(draft);
+        ensureWorkshopOrdersInState(draft);
         syncWorkforceState(draft);
         updateStorageCaps(draft, registries);
 
@@ -612,6 +631,9 @@ export function getManufacturingSnapshot(state, registries) {
       unlockedRecipes,
       lockedRecipes: lockedRecipes.slice(0, 6),
     },
+    workshop: {
+      ...snapshot.workshop,
+    },
   };
 }
 
@@ -647,6 +669,7 @@ export function strengthenWeapon({ store }, weaponId) {
 
   store.update((draft) => {
     ensureCraftingState(draft);
+    ensureWorkshopOrdersInState(draft);
     const snapshot = getCraftingSnapshot(draft);
     const weapon = snapshot.arsenal.inventory.find((entry) => entry.id === weaponId);
     if (!weapon) {
@@ -666,6 +689,39 @@ export function strengthenWeapon({ store }, weaponId) {
     appendLog(draft, 'economy', `${weapon.name} 强化至 +${(updated.strengthenLevel ?? 0)}`);
     success = true;
   }, { type: 'economy/strengthen-weapon', weaponId });
+
+  return success;
+}
+
+export function reforgeWeapon({ store }, weaponId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCraftingState(draft);
+    ensureWorkshopOrdersInState(draft);
+    const snapshot = getCraftingSnapshot(draft);
+    const weapon = snapshot.arsenal.inventory.find((entry) => entry.id === weaponId);
+    if (!weapon) {
+      return;
+    }
+
+    const cost = getWeaponReforgeCost(weapon);
+    if (!payCraftCost(draft, cost)) {
+      return;
+    }
+
+    const updated = reforgeWeaponInState(draft, weaponId);
+    if (!updated) {
+      return;
+    }
+
+    appendLog(
+      draft,
+      'economy',
+      `${weapon.name} 重铸洗练完成，当前 ${updated.qualityLabel}，词条改为 ${updated.affixes?.map((effect) => effect.name).join('、') || '无词条'}`,
+    );
+    success = true;
+  }, { type: 'economy/reforge-weapon', weaponId });
 
   return success;
 }
@@ -696,6 +752,7 @@ export function brewPill({ store }, recipeId) {
 
   store.update((draft) => {
     ensureCraftingState(draft);
+    ensureWorkshopOrdersInState(draft);
     const snapshot = getCraftingSnapshot(draft);
     const recipe = snapshot.alchemy.recipes.find((entry) => entry.id === recipeId);
     if (!recipe?.unlocked || !payCraftCost(draft, recipe.cost)) {
@@ -714,6 +771,47 @@ export function brewPill({ store }, recipeId) {
     );
     success = true;
   }, { type: 'economy/brew-pill', recipeId });
+
+  return success;
+}
+
+export function refreshWorkshopOrders({ store }) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCraftingState(draft);
+    ensureWorkshopOrdersInState(draft);
+    const snapshot = getCraftingSnapshot(draft);
+    if (!payCraftCost(draft, snapshot.workshop.refreshCost)) {
+      return;
+    }
+
+    refreshWorkshopOrdersInState(draft);
+    appendLog(draft, 'economy', '已刷新本轮工坊订单');
+    success = true;
+  }, { type: 'economy/refresh-workshop-orders' });
+
+  return success;
+}
+
+export function fulfillWorkshopOrder({ store }, orderId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCraftingState(draft);
+    ensureWorkshopOrdersInState(draft);
+    const result = fulfillWorkshopOrderInState(draft, orderId);
+    if (!result) {
+      return;
+    }
+
+    appendLog(
+      draft,
+      'economy',
+      `完成工坊订单：${result.order.title}，交付 ${result.order.bestMatchName ?? result.submitted?.name ?? '成品'}，声望 +${result.order.reputationReward ?? 0}`,
+    );
+    success = true;
+  }, { type: 'economy/fulfill-workshop-order', orderId });
 
   return success;
 }

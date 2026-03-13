@@ -3707,3 +3707,92 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 16/16`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-13 工坊订单与武器洗练重铸
+
+- Main goal:
+  - deepen the newly-added forging/alchemy loop so crafted output has a real mid-to-late game sink
+  - make workshop gameplay less one-directional by adding:
+    - weapon reforge / affix reroll
+    - workshop orders that consume forged weapons or brewed pill batches
+    - direct linkage back into commission reputation and affairs credit
+
+- Crafting state upgrade:
+  - upgraded `src/core/store.js`
+  - upgraded `src/systems/shared/crafting.js`
+  - crafting save data now additionally persists:
+    - `crafting.orderCounter`
+    - `crafting.workshopOrders`
+    - `crafting.fulfillmentHistory`
+  - weapons now also support:
+    - `reforgeCount`
+    - reforge cost calculation
+    - full affix + quality reroll via reforge
+
+- New workshop order loop:
+  - added order generation inside `src/systems/shared/crafting.js`
+  - current order structure provides three standing slots:
+    - `weapon-basic`
+    - `pill-basic`
+    - `featured`
+  - order fulfillment now:
+    - automatically picks the weakest valid non-active crafted item first
+    - consumes the submitted forged weapon / pill batch
+    - grants workshop rewards
+    - adds commission reputation
+    - adds affairs credit
+    - records fulfillment history
+    - auto-refills the emptied order slot
+  - this turns crafted output into a real economy bridge between:
+    - industry resources
+    - battle drops
+    - commission growth
+    - future workshop progression
+
+- Economy system upgrade:
+  - upgraded `src/systems/economySystem.js`
+  - added new actions:
+    - `reforgeWeapon`
+    - `refreshWorkshopOrders`
+    - `fulfillWorkshopOrder`
+  - economy setup / tick now ensure workshop orders exist in state
+  - workshop fulfillment is intentionally reward-shaped around:
+    - `reputation`
+    - `affairsCredit`
+    - `weaponEssence`
+    - high-value battle resources like `dao`, `spiritCrystal`, `talisman`
+
+- UI update:
+  - upgraded `src/ui/panels/economyPanel.js`
+  - upgraded `src/ui/economyEvents.js`
+  - economy page now includes:
+    - `工坊订单`
+    - order refresh
+    - eligible delivery preview
+    - delivery history
+    - weapon `洗练` action beside strengthen / dismantle
+  - current presentation goal:
+    - let players immediately see where crafted output can be reinvested
+    - avoid hoarding-only gameplay
+
+- Smoke update:
+  - upgraded `Forge And Alchemy Craft Loop`
+  - smoke now additionally verifies:
+    - workshop order panel renders
+    - weapon reforge works
+    - at least one order can be fulfilled after crafting
+    - order fulfillment writes history
+    - workshop fulfillment increases commission reputation
+  - also stabilized the beasts smoke by asserting expedition reward from recorded history instead of relying on global resource deltas, which can now be affected by additional valid background systems
+
+- Verified locally:
+  - `node --check src/core/store.js`
+  - `node --check src/systems/shared/crafting.js`
+  - `node --check src/systems/economySystem.js`
+  - `node --check src/ui/economyEvents.js`
+  - `node --check src/ui/panels/economyPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 90`
+  - result:
+    - `SMOKE PASS 16/16`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression

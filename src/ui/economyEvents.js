@@ -27,11 +27,20 @@ function handleEconomyUiAction({ action, element, app }) {
     case 'strengthen-weapon':
       app.bus.emit('action:economy/strengthenWeapon', { weaponId: element.dataset.weaponId });
       return true;
+    case 'reforge-weapon':
+      app.bus.emit('action:economy/reforgeWeapon', { weaponId: element.dataset.weaponId });
+      return true;
     case 'dismantle-weapon':
       app.bus.emit('action:economy/dismantleWeapon', { weaponId: element.dataset.weaponId });
       return true;
     case 'brew-pill':
       app.bus.emit('action:economy/brewPill', { recipeId: element.dataset.recipeId });
+      return true;
+    case 'refresh-workshop-orders':
+      app.bus.emit('action:economy/refreshWorkshopOrders', {});
+      return true;
+    case 'fulfill-workshop-order':
+      app.bus.emit('action:economy/fulfillWorkshopOrder', { orderId: element.dataset.orderId });
       return true;
     default:
       return false;

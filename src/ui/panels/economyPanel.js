@@ -70,6 +70,23 @@ function renderWeaponAffixes(weapon = {}, getResourceLabel) {
     .join(' · ');
 }
 
+function renderWorkshopHistory(history = [], formatNumber, getResourceLabel) {
+  if (!(history?.length > 0)) {
+    return '<div class="muted">最近还没有完成工坊订单，先交付一批兵器或丹药试试。</div>';
+  }
+
+  return history.map((entry) => `
+    <div class="log-item">
+      <div>
+        <strong>${entry.title}</strong>
+        <div class="muted">交付：${entry.submittedName ?? '未知成品'} · 声望 +${entry.reputationReward ?? 0} · 事务点 +${entry.affairsCreditReward ?? 0}</div>
+        <div class="muted">奖励：${renderWorkshopCost(entry.reward, formatNumber, getResourceLabel)}</div>
+      </div>
+      <span class="tag">已完成</span>
+    </div>
+  `).join('');
+}
+
 export function economyPanel(state, registries, deps = {}) {
   const {
     tooltipAttr,
@@ -86,6 +103,7 @@ export function economyPanel(state, registries, deps = {}) {
   const manufacturing = overview.crafting ?? {
     arsenal: { weaponEssence: 0, slotCount: 0, unlockedBlueprintCount: 0, totalBlueprintCount: 0, activeWeapons: [], inventory: [], unlockedBlueprints: [], lockedBlueprints: [] },
     alchemy: { slotCount: 0, unlockedRecipeCount: 0, totalRecipeCount: 0, activeBatches: [], inventory: [], unlockedRecipes: [], lockedRecipes: [] },
+    workshop: { orders: [], refreshCost: {}, canRefresh: false, history: [] },
   };
 
   return `
@@ -216,16 +234,18 @@ export function economyPanel(state, registries, deps = {}) {
                     `总效果：${renderEffectSummary(weapon.totalEffects, getResourceLabel)}`,
                     `词条：${renderWeaponAffixes(weapon, getResourceLabel)}`,
                     `强化花费：${renderWorkshopCost(weapon.strengthenCost, formatNumber, getResourceLabel)}`,
+                    `洗练花费：${renderWorkshopCost(weapon.reforgeCost, formatNumber, getResourceLabel)}`,
                     `分解返还：${renderWorkshopCost(weapon.dismantleReward, formatNumber, getResourceLabel)}`,
                   ])}>
                     <div>
                       <strong>${weapon.name}</strong>
-                      <div class="muted">${weapon.qualityLabel} · ${renderRarityLabel(weapon.blueprint?.rarity)} · 强化 +${weapon.strengthenLevel ?? 0}${weapon.active ? ' · 已镇库' : ''}</div>
+                      <div class="muted">${weapon.qualityLabel} · ${renderRarityLabel(weapon.blueprint?.rarity)} · 强化 +${weapon.strengthenLevel ?? 0}${weapon.active ? ' · 已镇库' : ''}${(weapon.reforgeCount ?? 0) > 0 ? ` · 洗练 ${weapon.reforgeCount} 次` : ''}</div>
                       <div class="muted">总效果：${renderEffectSummary(weapon.totalEffects, getResourceLabel)}</div>
                       <div class="muted">词条：${renderWeaponAffixes(weapon, getResourceLabel)}</div>
                     </div>
                     <div class="inline-actions">
                       <button data-action="strengthen-weapon" data-weapon-id="${weapon.id}" ${weapon.canStrengthen ? '' : 'disabled'}>强化</button>
+                      <button class="ghost" data-action="reforge-weapon" data-weapon-id="${weapon.id}" ${weapon.canReforge ? '' : 'disabled'}>洗练</button>
                       <button class="secondary" data-action="dismantle-weapon" data-weapon-id="${weapon.id}">分解</button>
                     </div>
                   </div>
@@ -274,6 +294,56 @@ export function economyPanel(state, registries, deps = {}) {
                   </div>
                 `).join('')
                 : '<div class="muted">当前兵谱已经全部开放，继续筛词条、强化与分解即可滚动优化镇库阵容。</div>')}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title"><h3>工坊订单</h3><span class="tag">${manufacturing.workshop.orders?.length ?? 0} 单</span></div>
+        <div class="card">
+          <div class="muted">锻成兵器和炼成丹药后，可以直接上交给宗门军备房与执务堂。订单会持续消耗你的高成色成品，并把它们转成声望、事务点、器魂与战斗资源，形成真正的后段消费出口。</div>
+        </div>
+        <div class="mini-grid">
+          <div class="card"><div class="muted">当前订单</div><strong>${manufacturing.workshop.orders?.length ?? 0}</strong></div>
+          <div class="card"><div class="muted">最近交付</div><strong>${manufacturing.workshop.history?.[0]?.submittedName ?? '暂无'}</strong></div>
+          <div class="card"><div class="muted">当前声望</div><strong>${formatNumber(state.commissions?.reputation ?? 0)}</strong></div>
+          <div class="card"><div class="muted">换单消耗</div><strong>${renderWorkshopCost(manufacturing.workshop.refreshCost, formatNumber, getResourceLabel)}</strong></div>
+        </div>
+        <div class="inline-actions">
+          <button data-action="refresh-workshop-orders" ${manufacturing.workshop.canRefresh ? '' : 'disabled'}>刷新工坊订单</button>
+          <span class="muted">${manufacturing.workshop.canRefresh ? '当期订单不合手时可直接换一轮新需求。' : '当前资源不足，暂时无法刷新订单。'}</span>
+        </div>
+        <div class="grid">
+          <div class="card">
+            <div class="card-title"><strong>当前订单</strong><span class="tag">${manufacturing.workshop.orders?.filter((order) => order.canFulfill)?.length ?? 0} 单可交付</span></div>
+            <div class="log-list">
+              ${(manufacturing.workshop.orders?.length
+                ? manufacturing.workshop.orders.map((order) => `
+                  <div class="log-item" ${tooltipAttr([
+                    order.note ?? '暂无说明',
+                    `需求：${order.requestSummary}`,
+                    `可交付数量：${order.eligibleCount ?? 0}`,
+                    `最佳匹配：${order.bestMatchName ?? '暂无'}`,
+                    `奖励：${renderWorkshopCost(order.reward, formatNumber, getResourceLabel)}`,
+                    `额外收益：声望 +${order.reputationReward ?? 0} · 事务点 +${order.affairsCreditReward ?? 0}`,
+                  ])}>
+                    <div>
+                      <strong>${order.title}</strong>
+                      <div class="muted">${order.kindLabel}订单 · ${order.requestSummary}</div>
+                      <div class="muted">推荐交付：${order.bestMatchName ?? '当前暂无合规成品'}</div>
+                      <div class="muted">奖励：${renderWorkshopCost(order.reward, formatNumber, getResourceLabel)} · 声望 +${order.reputationReward ?? 0} · 事务点 +${order.affairsCreditReward ?? 0}</div>
+                    </div>
+                    <button data-action="fulfill-workshop-order" data-order-id="${order.id}" ${order.canFulfill ? '' : 'disabled'}>${order.canFulfill ? '交付最佳匹配' : '暂不可交付'}</button>
+                  </div>
+                `).join('')
+                : '<div class="muted">当前没有工坊订单，稍后会自动补出新一轮需求。</div>')}
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title"><strong>交付记录</strong><span class="tag">${manufacturing.workshop.history?.length ?? 0} 条</span></div>
+            <div class="log-list">
+              ${renderWorkshopHistory(manufacturing.workshop.history, formatNumber, getResourceLabel)}
             </div>
           </div>
         </div>

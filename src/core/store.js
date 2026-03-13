@@ -207,9 +207,12 @@ export function createBaseState() {
       seed: 246813579,
       weaponCounter: 0,
       pillCounter: 0,
+      orderCounter: 0,
       weaponEssence: 0,
       forgedWeapons: [],
       brewedPills: [],
+      workshopOrders: [],
+      fulfillmentHistory: [],
     },
     commissions: {
       active: null,
@@ -436,6 +439,7 @@ export function normalizeState(savedState = {}) {
       seed: Math.max(Number(savedState.crafting?.seed) || base.crafting.seed, 1),
       weaponCounter: Math.max(Number(savedState.crafting?.weaponCounter) || 0, 0),
       pillCounter: Math.max(Number(savedState.crafting?.pillCounter) || 0, 0),
+      orderCounter: Math.max(Number(savedState.crafting?.orderCounter) || 0, 0),
       weaponEssence: Math.max(Number(savedState.crafting?.weaponEssence) || 0, 0),
       forgedWeapons: Array.isArray(savedState.crafting?.forgedWeapons)
         ? savedState.crafting.forgedWeapons.slice(0, 60).map((entry) => ({
@@ -450,6 +454,18 @@ export function normalizeState(savedState = {}) {
           baseEffects: Array.isArray(entry?.baseEffects) ? entry.baseEffects.map((effect) => ({ ...effect })) : [],
         }))
         : base.crafting.brewedPills,
+      workshopOrders: Array.isArray(savedState.crafting?.workshopOrders)
+        ? savedState.crafting.workshopOrders.slice(0, 6).map((entry) => ({
+          ...entry,
+          reward: { ...(entry?.reward ?? {}) },
+        }))
+        : base.crafting.workshopOrders,
+      fulfillmentHistory: Array.isArray(savedState.crafting?.fulfillmentHistory)
+        ? savedState.crafting.fulfillmentHistory.slice(0, 8).map((entry) => ({
+          ...entry,
+          reward: { ...(entry?.reward ?? {}) },
+        }))
+        : base.crafting.fulfillmentHistory,
     },
     commissions: {
       ...base.commissions,

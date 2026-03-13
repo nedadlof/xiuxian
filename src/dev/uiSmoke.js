@@ -377,10 +377,14 @@ async function runSmoke() {
       harness.goToTab('economy');
       assert(root.textContent.includes('锻炉百兵'), '经济页未渲染锻炉百兵');
       assert(root.textContent.includes('丹阁百方'), '经济页未渲染丹阁百方');
+      assert(root.textContent.includes('工坊订单'), '经济页未渲染工坊订单');
       const beforeState = harness.app.store.getState();
       const beforeWeaponCount = beforeState.crafting?.forgedWeapons?.length ?? 0;
       const beforePillCount = beforeState.crafting?.brewedPills?.length ?? 0;
       const beforeEssence = beforeState.crafting?.weaponEssence ?? 0;
+      const beforeReputation = beforeState.commissions?.reputation ?? 0;
+      const beforeAffairsCredit = beforeState.commissions?.affairsCredit ?? 0;
+      const beforeOrderHistory = beforeState.crafting?.fulfillmentHistory?.length ?? 0;
       clickAction('forge-weapon', (element) => !element.disabled);
       clickAction('forge-weapon', (element) => !element.disabled);
       let craftingState = harness.app.store.getState();
@@ -397,12 +401,26 @@ async function runSmoke() {
       craftingState = harness.app.store.getState();
       const strengthenAfter = (craftingState.crafting?.forgedWeapons ?? []).find((weapon) => weapon.id === strengthenTargetId)?.strengthenLevel ?? 0;
       assert(strengthenAfter > strengthenBefore, `武器强化未生效: before=${strengthenBefore}, after=${strengthenAfter}`);
+      harness.app.store.update((draft) => {
+        draft.crafting.weaponEssence = Math.max(draft.crafting?.weaponEssence ?? 0, 120);
+        draft.commissions.affairsCredit = Math.max(draft.commissions?.affairsCredit ?? 0, 120);
+      }, { type: 'smoke/crafting-reforge-buffer' });
+      const reforgeBefore = (craftingState.crafting?.forgedWeapons ?? []).find((weapon) => weapon.id === strengthenTargetId)?.reforgeCount ?? 0;
+      clickAction('reforge-weapon', (element) => element.dataset.weaponId === strengthenTargetId && !element.disabled);
+      craftingState = harness.app.store.getState();
+      const reforgeAfter = (craftingState.crafting?.forgedWeapons ?? []).find((weapon) => weapon.id === strengthenTargetId)?.reforgeCount ?? 0;
+      assert(reforgeAfter > reforgeBefore, `武器洗练未生效: before=${reforgeBefore}, after=${reforgeAfter}`);
       clickAction('brew-pill', (element) => !element.disabled);
       craftingState = harness.app.store.getState();
       assert((craftingState.crafting?.brewedPills?.length ?? 0) > beforePillCount, '炼丹未生成成药批次');
+      clickAction('fulfill-workshop-order', (element) => !element.disabled);
+      craftingState = harness.app.store.getState();
+      assert((craftingState.crafting?.fulfillmentHistory?.length ?? 0) > beforeOrderHistory, '工坊订单未写入交付记录');
+      assert((craftingState.commissions?.reputation ?? 0) > beforeReputation, '工坊订单未增加声望');
+      assert((craftingState.commissions?.affairsCredit ?? 0) >= beforeAffairsCredit, '工坊订单异常扣减事务点');
       assert(root.textContent.includes('器库库存'), '经济页未渲染器库库存');
       assert(root.textContent.includes('成药库存'), '经济页未渲染成药库存');
-      return `锻造库存 ${beforeWeaponCount} -> ${craftingState.crafting?.forgedWeapons?.length ?? 0}，器魂 ${beforeEssence} -> ${craftingState.crafting?.weaponEssence ?? 0}，强化 ${strengthenBefore} -> ${strengthenAfter}，成药 ${beforePillCount} -> ${craftingState.crafting?.brewedPills?.length ?? 0}`;
+      return `锻造库存 ${beforeWeaponCount} -> ${craftingState.crafting?.forgedWeapons?.length ?? 0}，器魂 ${beforeEssence} -> ${craftingState.crafting?.weaponEssence ?? 0}，强化 ${strengthenBefore} -> ${strengthenAfter}，洗练 ${reforgeBefore} -> ${reforgeAfter}，成药 ${beforePillCount} -> ${craftingState.crafting?.brewedPills?.length ?? 0}，声望 ${beforeReputation} -> ${craftingState.commissions?.reputation ?? 0}`;
     });
 
     await runCase('Warehouse Seal And Strategy Flow', async () => {
@@ -679,6 +697,11 @@ async function runSmoke() {
             draft.beasts.unlocked.push(extraBeastId);
           }
         }
+        draft.warehouse.autoSealEnabled = false;
+        draft.commissions.autoDispatch = {
+          ...(draft.commissions.autoDispatch ?? {}),
+          enabled: false,
+        };
         draft.beasts.activeIds = [];
         draft.beasts.awakeningLevels.qiongqi = Math.max(draft.beasts.awakeningLevels?.qiongqi ?? 0, 2);
         draft.beasts.awakeningLevels.jiuying = Math.max(draft.beasts.awakeningLevels?.jiuying ?? 0, 1);
@@ -753,9 +776,12 @@ async function runSmoke() {
       expeditionState = harness.app.store.getState();
       const afterRouteRewards = ['herb', 'wood', 'beastShard', 'pills']
         .reduce((sum, resourceId) => sum + (expeditionState.resources?.[resourceId] ?? 0), 0);
+      const latestExpeditionHistory = expeditionState.beasts.expedition?.history?.[0];
+      const claimedRouteReward = ['herb', 'wood', 'beastShard', 'pills']
+        .reduce((sum, resourceId) => sum + (latestExpeditionHistory?.rewardMap?.[resourceId] ?? 0), 0);
       assert(!expeditionState.beasts.expedition?.active, '灵兽巡游领取后仍残留进行中状态');
       assert((expeditionState.beasts.expedition?.history?.length ?? 0) > beforeExpeditionHistory, '灵兽巡游未写入历史');
-      assert(afterRouteRewards > beforeRouteRewards, `灵兽巡游未增加资源: before=${beforeRouteRewards}, after=${afterRouteRewards}`);
+      assert(claimedRouteReward > 0, `灵兽巡游历史未记录有效奖励: before=${beforeRouteRewards}, after=${afterRouteRewards}, history=${JSON.stringify(latestExpeditionHistory?.rewardMap ?? {})}`);
       assert((expeditionState.beasts.collection?.relicIds?.length ?? 0) > 0, '灵兽巡游未解锁异宝图鉴');
       assert(root.textContent.includes('灵兽养成'), '灵兽页未渲染养成说明');
       assert(root.textContent.includes('兽契共鸣'), '灵兽页未渲染兽契共鸣');
