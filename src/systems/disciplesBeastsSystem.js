@@ -1,4 +1,4 @@
-import { appendLog } from './shared/logs.js';
+﻿import { appendLog } from './shared/logs.js';
 import { canTrainDisciple, getDiscipleEffectMultiplier, getDiscipleTrainingCost } from '../data/discipleTraining.js';
 import {
   canAdvanceDiscipleResonance,
@@ -8,6 +8,7 @@ import {
 } from '../data/discipleAdvancement.js';
 import { getBeastBondSnapshot } from '../data/beastBonds.js';
 import { getBeastExpeditionDefinition, listBeastExpeditionDefinitions } from '../data/beastExpeditions.js';
+import { getBeastExpeditionEventTriggerProgress, pickBeastExpeditionEventDefinition } from '../data/beastExpeditionEvents.js';
 import { getExpeditionBondSnapshot } from '../data/expeditionBonds.js';
 import {
   filterCandidatesByGuarantee,
@@ -58,6 +59,15 @@ function ensureCharacterState(state) {
   };
   state.beasts.expedition.active ??= null;
   state.beasts.expedition.history ??= [];
+  if (state.beasts.expedition.active) {
+    state.beasts.expedition.active.eventState ??= {
+      triggerProgress: getBeastExpeditionEventTriggerProgress(),
+      resolvedEvents: [],
+      pendingEvent: null,
+    };
+    state.beasts.expedition.active.eventState.resolvedEvents ??= [];
+    state.beasts.expedition.active.eventState.pendingEvent ??= null;
+  }
 
   for (const discipleId of state.disciples.owned ?? []) {
     if (!state.disciples.levels[discipleId]) {
@@ -315,10 +325,15 @@ export function createDisciplesBeastsSystem() {
       bus.on('action:beasts/claimExpedition', () => {
         claimBeastExpedition({ store, bus, registries });
       });
+
+      bus.on('action:beasts/resolveExpeditionEvent', ({ optionId }) => {
+        resolveBeastExpeditionEvent({ store, bus, registries }, optionId);
+      });
     },
-    tick({ store }) {
+    tick({ store }, deltaSeconds, source) {
       store.update((draft) => {
         ensureCharacterState(draft);
+        tickBeastExpeditionEvents(draft, source);
       }, { type: 'disciples-beasts/tick' });
     },
   };
@@ -626,6 +641,180 @@ function scaleResourceMap(resourceMap, multiplier = 1) {
   );
 }
 
+function getBeastExpeditionProgressRatio(active, now = Date.now()) {
+  if (!active) {
+    return 0;
+  }
+
+  const startedAt = Number(active.startedAt) || now;
+  const completesAt = Math.max(Number(active.completesAt) || startedAt, startedAt + 1000);
+  if (completesAt <= startedAt) {
+    return 1;
+  }
+
+  return Math.max(0, Math.min((now - startedAt) / (completesAt - startedAt), 1));
+}
+
+function buildPendingBeastExpeditionEvent(active, now = Date.now()) {
+  const usedEventIds = active?.eventState?.resolvedEvents?.map((entry) => entry.eventId).filter(Boolean) ?? [];
+  const definition = pickBeastExpeditionEventDefinition({
+    routeId: active?.routeId,
+    usedEventIds,
+    seed: (active?.startedAt ?? now) + usedEventIds.length,
+  });
+  if (!definition) {
+    return null;
+  }
+
+  return {
+    eventId: definition.id,
+    name: definition.name,
+    description: definition.description,
+    triggeredAt: now,
+    options: (definition.options ?? []).map((option) => ({
+      ...option,
+      eventId: definition.id,
+      effects: {
+        ...(option.effects ?? {}),
+        rewardBonus: { ...(option.effects?.rewardBonus ?? {}) },
+      },
+    })),
+  };
+}
+
+function applyBeastExpeditionEventOption(active, option, now = Date.now()) {
+  const effects = {
+    ...(option?.effects ?? {}),
+    rewardBonus: { ...(option?.effects?.rewardBonus ?? {}) },
+  };
+  const rewardMultiplier = Math.max(Number(effects.rewardMultiplier) || 1, 0.2);
+  const rewardMap = mergeResourceMaps(
+    scaleResourceMap(active?.rewardMap ?? {}, rewardMultiplier),
+    effects.rewardBonus ?? {},
+  );
+  const remainingSeconds = Math.max(Math.ceil(((active?.completesAt ?? now) - now) / 1000), 0);
+  const durationMultiplier = Math.max(Number(effects.durationMultiplier) || 1, 0.35);
+  const durationFlatSeconds = Math.round(Number(effects.durationFlatSeconds) || 0);
+  const nextRemainingSeconds = Math.max(0, Math.round(remainingSeconds * durationMultiplier) + durationFlatSeconds);
+  const resolvedEntry = {
+    eventId: active?.eventState?.pendingEvent?.eventId ?? option?.eventId ?? null,
+    eventName: active?.eventState?.pendingEvent?.name ?? null,
+    optionId: option?.id ?? null,
+    optionLabel: option?.label ?? null,
+    resolvedAt: now,
+  };
+
+  return {
+    ...active,
+    rewardMap,
+    completesAt: now + nextRemainingSeconds * 1000,
+    eventState: {
+      ...(active?.eventState ?? {}),
+      pendingEvent: null,
+      resolvedEvents: [...(active?.eventState?.resolvedEvents ?? []), resolvedEntry],
+    },
+    lastEventOutcome: {
+      ...resolvedEntry,
+      effects,
+    },
+  };
+}
+
+function maybeTriggerBeastExpeditionEvent(active, now = Date.now()) {
+  if (!active || active.eventState?.pendingEvent) {
+    return active;
+  }
+  if ((active.eventState?.resolvedEvents?.length ?? 0) > 0) {
+    return active;
+  }
+  if (getBeastExpeditionProgressRatio(active, now) < (active.eventState?.triggerProgress ?? getBeastExpeditionEventTriggerProgress())) {
+    return active;
+  }
+
+  const pendingEvent = buildPendingBeastExpeditionEvent(active, now);
+  if (!pendingEvent) {
+    return active;
+  }
+
+  return {
+    ...active,
+    eventState: {
+      ...(active.eventState ?? {}),
+      pendingEvent,
+    },
+  };
+}
+
+function resolveBeastExpeditionEventInState(state, optionId, { now = Date.now(), origin = 'manual' } = {}) {
+  const active = state.beasts.expedition?.active;
+  const pendingEvent = active?.eventState?.pendingEvent;
+  if (!active || !pendingEvent) {
+    return false;
+  }
+
+  const pickedOption = pendingEvent.options?.find((option) => option.id === optionId);
+  if (!pickedOption) {
+    return false;
+  }
+
+  state.beasts.expedition.active = applyBeastExpeditionEventOption(active, pickedOption, now);
+  state.commissions ??= {};
+  state.commissions.affairsCredit ??= 0;
+  const affairsCredit = Math.max(Number(pickedOption.effects?.affairsCredit) || 0, 0);
+  if (affairsCredit > 0) {
+    state.commissions.affairsCredit = (state.commissions?.affairsCredit ?? 0) + affairsCredit;
+  }
+
+  const warehouseAdvanceSeconds = Math.max(Number(pickedOption.effects?.warehouseAutoSealAdvanceSeconds) || 0, 0);
+  if (warehouseAdvanceSeconds > 0 && state.warehouse?.autoSealEnabled) {
+    state.warehouse.nextAutoSealAt = Math.max(
+      Math.min((state.warehouse?.nextAutoSealAt ?? now) - warehouseAdvanceSeconds * 1000, now),
+      0,
+    );
+  }
+
+  appendLog(
+    state,
+    'beasts',
+    `${origin === 'auto' ? '巡游奇遇代行抉择' : '巡游奇遇抉择'}：${pendingEvent.name} · ${pickedOption.label}`,
+  );
+  return true;
+}
+
+function tickBeastExpeditionEvents(state, source = 'runtime', now = Date.now()) {
+  const active = state.beasts.expedition?.active;
+  if (!active) {
+    return false;
+  }
+
+  if (active.eventState?.pendingEvent) {
+    if (source !== 'runtime') {
+      const defaultOption = active.eventState.pendingEvent.options?.find((option) => option.default)
+        ?? active.eventState.pendingEvent.options?.[0];
+      if (defaultOption) {
+        return resolveBeastExpeditionEventInState(state, defaultOption.id, { now, origin: 'auto' });
+      }
+    }
+    return false;
+  }
+
+  const withEvent = maybeTriggerBeastExpeditionEvent(active, now);
+  if (withEvent !== active) {
+    state.beasts.expedition.active = withEvent;
+    appendLog(state, 'beasts', `巡游途中奇遇：${withEvent.eventState?.pendingEvent?.name ?? '未知异象'}`);
+    if (source !== 'runtime') {
+      const defaultOption = withEvent.eventState?.pendingEvent?.options?.find((option) => option.default)
+        ?? withEvent.eventState?.pendingEvent?.options?.[0];
+      if (defaultOption) {
+        resolveBeastExpeditionEventInState(state, defaultOption.id, { now, origin: 'auto' });
+      }
+    }
+    return true;
+  }
+
+  return false;
+}
+
 function getBeastExpeditionQualityLabel(score = 0) {
   if (score >= 70) {
     return '大丰收';
@@ -683,6 +872,22 @@ function getBeastExpeditionSnapshot(state, registries, beasts = getBeastSnapshot
     ? {
       ...state.beasts.expedition.active,
       rewardMap: { ...(state.beasts.expedition.active.rewardMap ?? {}) },
+      eventState: {
+        triggerProgress: state.beasts.expedition.active.eventState?.triggerProgress ?? getBeastExpeditionEventTriggerProgress(),
+        pendingEvent: state.beasts.expedition.active.eventState?.pendingEvent
+          ? {
+            ...state.beasts.expedition.active.eventState.pendingEvent,
+            options: (state.beasts.expedition.active.eventState.pendingEvent.options ?? []).map((option) => ({
+              ...option,
+              effects: {
+                ...(option.effects ?? {}),
+                rewardBonus: { ...(option.effects?.rewardBonus ?? {}) },
+              },
+            })),
+          }
+          : null,
+        resolvedEvents: (state.beasts.expedition.active.eventState?.resolvedEvents ?? []).map((entry) => ({ ...entry })),
+      },
     }
     : null;
   const now = Date.now();
@@ -697,6 +902,22 @@ function getBeastExpeditionSnapshot(state, registries, beasts = getBeastSnapshot
     ? state.beasts.expedition.history.slice(0, 6).map((entry) => ({
       ...entry,
       rewardMap: { ...(entry.rewardMap ?? {}) },
+      eventState: {
+        triggerProgress: entry.eventState?.triggerProgress ?? getBeastExpeditionEventTriggerProgress(),
+        pendingEvent: entry.eventState?.pendingEvent
+          ? {
+            ...entry.eventState.pendingEvent,
+            options: (entry.eventState.pendingEvent.options ?? []).map((option) => ({
+              ...option,
+              effects: {
+                ...(option.effects ?? {}),
+                rewardBonus: { ...(option.effects?.rewardBonus ?? {}) },
+              },
+            })),
+          }
+          : null,
+        resolvedEvents: (entry.eventState?.resolvedEvents ?? []).map((resolvedEntry) => ({ ...resolvedEntry })),
+      },
     }))
     : [];
   const routes = listBeastExpeditionDefinitions().map((definition) => {
@@ -1003,6 +1224,11 @@ export function startBeastExpedition({ store, registries }, routeId) {
       completesAt: startedAt + recommendation.durationSeconds * 1000,
       tagMatches: recommendation.tagMatches,
       rewardMap: { ...recommendation.rewardMap },
+      eventState: {
+        triggerProgress: getBeastExpeditionEventTriggerProgress(),
+        resolvedEvents: [],
+        pendingEvent: null,
+      },
     };
     appendLog(
       draft,
@@ -1021,7 +1247,7 @@ export function claimBeastExpedition({ store }) {
   store.update((draft) => {
     ensureCharacterState(draft);
     const active = draft.beasts.expedition?.active;
-    if (!active || (active.completesAt ?? 0) > Date.now()) {
+    if (!active || active.eventState?.pendingEvent || (active.completesAt ?? 0) > Date.now()) {
       return;
     }
 
@@ -1036,6 +1262,17 @@ export function claimBeastExpedition({ store }) {
     appendLog(draft, 'beasts', `${active.beastName} 完成 ${active.routeName}，带回一批巡游收获`);
     success = true;
   }, { type: 'beasts/claim-expedition' });
+
+  return success;
+}
+
+export function resolveBeastExpeditionEvent({ store }, optionId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCharacterState(draft);
+    success = resolveBeastExpeditionEventInState(draft, optionId, { now: Date.now(), origin: 'manual' });
+  }, { type: 'beasts/resolve-expedition-event', optionId });
 
   return success;
 }

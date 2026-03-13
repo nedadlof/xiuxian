@@ -655,6 +655,23 @@ async function runSmoke() {
       let expeditionState = harness.app.store.getState();
       assert(expeditionState.beasts.expedition?.active?.routeId === 'verdant-trail', '灵兽巡游未成功开始');
       harness.app.store.update((draft) => {
+        if (draft.beasts.expedition?.active?.eventState) {
+          draft.beasts.expedition.active.eventState.triggerProgress = 0;
+        }
+      }, { type: 'smoke/beast-expedition-event-ready' });
+      harness.app.engine.runTick(1, 'runtime');
+      expeditionState = harness.app.store.getState();
+      assert(expeditionState.beasts.expedition?.active?.eventState?.pendingEvent, '灵兽巡游奇遇未触发');
+      assert(root.textContent.includes('巡游奇遇'), '灵兽页未渲染巡游奇遇');
+      const claimDuringEventButton = root.querySelector('[data-action="claim-beast-expedition"]');
+      assert(claimDuringEventButton?.disabled, '奇遇未处理前不应允许直接领取巡游奖励');
+      const pendingOptionId = expeditionState.beasts.expedition.active.eventState.pendingEvent.options?.[0]?.id;
+      assert(pendingOptionId, '巡游奇遇缺少可选项');
+      clickAction('resolve-beast-expedition-event', (element) => element.dataset.optionId === pendingOptionId);
+      expeditionState = harness.app.store.getState();
+      assert(!expeditionState.beasts.expedition?.active?.eventState?.pendingEvent, '灵兽巡游奇遇未成功结算');
+      assert((expeditionState.beasts.expedition?.active?.eventState?.resolvedEvents?.length ?? 0) > 0, '巡游奇遇未写入已结算记录');
+      harness.app.store.update((draft) => {
         if (draft.beasts.expedition?.active) {
           draft.beasts.expedition.active.completesAt = Date.now() - 1000;
         }

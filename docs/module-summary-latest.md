@@ -3421,3 +3421,89 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 15/15`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-13 灵兽巡游奇遇与中途抉择
+
+- Main goal:
+  - deepen beast expedition from passive timer collection into a repeatable decision loop
+  - make the beast idle branch feel more alive by adding:
+    - mid-expedition encounters
+    - branching choices
+    - visible tradeoffs in time vs reward
+    - cross-system payoffs
+
+- New event data:
+  - added `src/data/beastExpeditionEvents.js`
+  - current expedition encounter pool includes route-specific events for:
+    - `林渊巡猎`
+    - `炎脉寻火`
+    - `荒城拾遗`
+  - each encounter now defines:
+    - triggerable route(s)
+    - event name and description
+    - multiple options
+    - default auto-resolution option for offline / automation contexts
+    - effect payloads such as:
+      - reward bonus
+      - reward multiplier
+      - duration multiplier
+      - commission affairs credit
+      - warehouse auto-seal acceleration
+
+- Beast system upgrade:
+  - upgraded `src/systems/disciplesBeastsSystem.js`
+  - beast expeditions now carry:
+    - `eventState.triggerProgress`
+    - `eventState.pendingEvent`
+    - `eventState.resolvedEvents`
+  - added:
+    - expedition progress ratio evaluation
+    - route-specific encounter picking
+    - option effect application
+    - runtime manual resolution
+    - non-runtime automatic default resolution
+  - current behavior:
+    - online runtime: encounter appears and waits for player choice
+    - offline / smoke / simulated ticks: defaults auto-resolve so the idle loop does not stall
+
+- Cross-system linkage:
+  - some expedition encounter options now feed into existing systems:
+    - `commissions.affairsCredit`
+    - warehouse auto-seal timing
+  - this keeps beast expeditions connected to:
+    - commission progression
+    - warehouse efficiency
+    - broader sect economy planning
+
+- UI update:
+  - upgraded `src/ui/panels/beastsPanel.js`
+  - current expedition card now shows:
+    - pending encounter state
+    - choice buttons for each encounter option
+    - claim gating until the encounter is resolved
+  - expedition history now also records:
+    - which encounter choice was taken during the route
+  - upgraded `src/ui/beastsEvents.js`
+  - added support for:
+    - `resolve-beast-expedition-event`
+
+- Smoke update:
+  - upgraded `Beasts Unlock And Toggle`
+  - smoke now verifies:
+    - expedition can start
+    - encounter trigger can appear mid-route
+    - claim is blocked while encounter is unresolved
+    - encounter choice can be resolved
+    - resolved encounter is recorded
+    - expedition can still complete and be claimed afterward
+
+- Verified locally:
+  - `node --check src/data/beastExpeditionEvents.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/ui/beastsEvents.js`
+  - `node --check src/ui/panels/beastsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression

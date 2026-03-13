@@ -18,6 +18,9 @@ function handleBeastsUiAction({ action, element, app }) {
     case 'claim-beast-expedition':
       app.bus.emit('action:beasts/claimExpedition');
       return true;
+    case 'resolve-beast-expedition-event':
+      app.bus.emit('action:beasts/resolveExpeditionEvent', { optionId: element.dataset.optionId });
+      return true;
     default:
       return false;
   }

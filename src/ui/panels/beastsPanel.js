@@ -88,6 +88,9 @@ function renderExpeditionHistory(history = [], getResourceLabel) {
       <div>
         <strong>${entry.routeName}</strong>
         <div class="muted">${entry.beastName} · ${entry.qualityLabel} · 收益 ${renderResourceMap(entry.rewardMap, getResourceLabel)}</div>
+        <div class="muted">${entry.eventState?.resolvedEvents?.length
+          ? `奇遇抉择：${entry.eventState.resolvedEvents.map((event) => `${event.eventName} / ${event.optionLabel}`).join(' · ')}`
+          : '本次巡游未触发额外奇遇。'}</div>
       </div>
       <span class="tag">已带回</span>
     </div>
@@ -158,10 +161,27 @@ export function beastsPanel(state, registries, deps = {}) {
             ${expedition.active ? `
               <div class="muted">${expedition.active.beastName} 正在执行 ${expedition.active.routeName}，当前品质 ${expedition.active.qualityLabel}</div>
               <div class="muted">预计收获：${renderResourceMap(expedition.active.rewardMap, getResourceLabel)}</div>
-              <div class="muted">${expedition.active.completed ? '巡游已经结束，可以立刻收取。' : `剩余时间 ${formatDuration(expedition.active.remainingSeconds)}`}</div>
+              <div class="muted">${expedition.active.eventState?.pendingEvent
+                ? '途中遭遇奇遇，需先做出抉择后才能继续收取本次巡游收益。'
+                : (expedition.active.completed ? '巡游已经结束，可以立刻收取。' : `剩余时间 ${formatDuration(expedition.active.remainingSeconds)}`)}</div>
+              ${expedition.active.eventState?.pendingEvent ? `
+                <div class="card">
+                  <div class="card-title"><strong>巡游奇遇</strong><span class="tag">待抉择</span></div>
+                  <div class="muted">${expedition.active.eventState.pendingEvent.name}</div>
+                  <div class="muted">${expedition.active.eventState.pendingEvent.description}</div>
+                  <div class="inline-actions">
+                    ${(expedition.active.eventState.pendingEvent.options ?? []).map((option) => `
+                      <button data-action="resolve-beast-expedition-event" data-option-id="${option.id}">${option.label}</button>
+                    `).join('')}
+                  </div>
+                  <div class="muted">${(expedition.active.eventState.pendingEvent.options ?? []).map((option) => `${option.label}：${option.description}`).join(' · ')}</div>
+                </div>
+              ` : ''}
               <div class="inline-actions">
-                <button data-action="claim-beast-expedition" ${expedition.active.completed ? '' : 'disabled'}>收取巡游战利</button>
-                <span class="muted">${expedition.active.completed ? '收取后即可继续派出下一次巡游' : '巡游期间会保留当前灵兽养成与上阵效果'}</span>
+                <button data-action="claim-beast-expedition" ${(expedition.active.completed && !expedition.active.eventState?.pendingEvent) ? '' : 'disabled'}>收取巡游战利</button>
+                <span class="muted">${expedition.active.eventState?.pendingEvent
+                  ? '先完成奇遇抉择，再继续结算本次巡游。'
+                  : (expedition.active.completed ? '收取后即可继续派出下一次巡游' : '巡游期间会保留当前灵兽养成与上阵效果')}</span>
               </div>
             ` : '<div class="muted">当前没有进行中的巡游，可从下方路线中选择一条并派出推荐灵兽。</div>'}
           </div>
