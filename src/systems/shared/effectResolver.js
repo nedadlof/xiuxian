@@ -3,6 +3,7 @@ import { getBeastBondEffects, getBeastBondSnapshot } from '../../data/beastBonds
 import { getExpeditionBondEffects, getExpeditionBondSnapshot } from '../../data/expeditionBonds.js';
 import { getBeastRelicEffects, getBeastRelicSnapshot } from '../../data/beastRelics.js';
 import { listBattlePreparationDefinitions } from '../../data/battlePreparations.js';
+import { getCraftingEffects } from './crafting.js';
 
 export function collectUnlockedEffects(state, registries) {
   const techEffects = state.scripture.unlockedNodes.flatMap((id) => registries.techNodes.get(id)?.effects ?? []);
@@ -90,6 +91,7 @@ export function collectUnlockedEffects(state, registries) {
   const beastBondEffects = getBeastBondEffects(activeBeastRoster);
   const beastRelicSnapshot = getBeastRelicSnapshot(state.beasts?.collection);
   const beastRelicEffectBundle = getBeastRelicEffects(state.beasts?.collection);
+  const craftingEffectBundle = getCraftingEffects(state);
 
   const preparationEffects = listBattlePreparationDefinitions().flatMap((definition) => {
     const level = state.preparations?.levels?.[definition.id] ?? 0;
@@ -117,6 +119,9 @@ export function collectUnlockedEffects(state, registries) {
     beastRelicSnapshot,
     beastRelicEffects: beastRelicEffectBundle.relicEffects,
     beastRelicSetEffects: beastRelicEffectBundle.setEffects,
+    craftingSnapshot: craftingEffectBundle.snapshot,
+    forgedWeaponEffects: craftingEffectBundle.weaponEffects,
+    craftedPillEffects: craftingEffectBundle.pillEffects,
     preparationEffects,
     all: [
       ...techEffects,
@@ -126,6 +131,7 @@ export function collectUnlockedEffects(state, registries) {
       ...beastEffects,
       ...beastBondEffects,
       ...beastRelicEffectBundle.all,
+      ...craftingEffectBundle.all,
       ...preparationEffects,
     ],
   };

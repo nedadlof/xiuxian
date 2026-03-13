@@ -203,6 +203,14 @@ export function createBaseState() {
       autoSealEnabled: false,
       nextAutoSealAt: 0,
     },
+    crafting: {
+      seed: 246813579,
+      weaponCounter: 0,
+      pillCounter: 0,
+      weaponEssence: 0,
+      forgedWeapons: [],
+      brewedPills: [],
+    },
     commissions: {
       active: null,
       completed: [],
@@ -421,6 +429,27 @@ export function normalizeState(savedState = {}) {
       activeStrategyId: savedState.warehouse?.activeStrategyId ?? base.warehouse.activeStrategyId,
       autoSealEnabled: Boolean(savedState.warehouse?.autoSealEnabled ?? base.warehouse.autoSealEnabled),
       nextAutoSealAt: Math.max(Number(savedState.warehouse?.nextAutoSealAt) || 0, 0),
+    },
+    crafting: {
+      ...base.crafting,
+      ...(savedState.crafting ?? {}),
+      seed: Math.max(Number(savedState.crafting?.seed) || base.crafting.seed, 1),
+      weaponCounter: Math.max(Number(savedState.crafting?.weaponCounter) || 0, 0),
+      pillCounter: Math.max(Number(savedState.crafting?.pillCounter) || 0, 0),
+      weaponEssence: Math.max(Number(savedState.crafting?.weaponEssence) || 0, 0),
+      forgedWeapons: Array.isArray(savedState.crafting?.forgedWeapons)
+        ? savedState.crafting.forgedWeapons.slice(0, 60).map((entry) => ({
+          ...entry,
+          baseEffects: Array.isArray(entry?.baseEffects) ? entry.baseEffects.map((effect) => ({ ...effect })) : [],
+          affixes: Array.isArray(entry?.affixes) ? entry.affixes.map((effect) => ({ ...effect })) : [],
+        }))
+        : base.crafting.forgedWeapons,
+      brewedPills: Array.isArray(savedState.crafting?.brewedPills)
+        ? savedState.crafting.brewedPills.slice(0, 60).map((entry) => ({
+          ...entry,
+          baseEffects: Array.isArray(entry?.baseEffects) ? entry.baseEffects.map((effect) => ({ ...effect })) : [],
+        }))
+        : base.crafting.brewedPills,
     },
     commissions: {
       ...base.commissions,

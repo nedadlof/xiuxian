@@ -21,6 +21,18 @@ function handleEconomyUiAction({ action, element, app }) {
     case 'refine-preparation':
       app.bus.emit('action:economy/refinePreparation', { preparationId: element.dataset.id });
       return true;
+    case 'forge-weapon':
+      app.bus.emit('action:economy/forgeWeapon', { blueprintId: element.dataset.blueprintId });
+      return true;
+    case 'strengthen-weapon':
+      app.bus.emit('action:economy/strengthenWeapon', { weaponId: element.dataset.weaponId });
+      return true;
+    case 'dismantle-weapon':
+      app.bus.emit('action:economy/dismantleWeapon', { weaponId: element.dataset.weaponId });
+      return true;
+    case 'brew-pill':
+      app.bus.emit('action:economy/brewPill', { recipeId: element.dataset.recipeId });
+      return true;
     default:
       return false;
   }

@@ -13,6 +13,17 @@ import {
 } from '../data/battlePreparations.js';
 import { getWarehouseEffects, getWarehouseStorageResourceIds } from '../data/warehouse.js';
 import { appendLog } from './shared/logs.js';
+import {
+  brewPillRecipeInState,
+  canAffordCraftCost,
+  dismantleWeaponInState,
+  ensureCraftingState,
+  forgeWeaponInState,
+  getCraftingSnapshot,
+  getWeaponStrengthenCost,
+  payCraftCost,
+  strengthenWeaponInState,
+} from './shared/crafting.js';
 import { collectUnlockedEffects, sumEffects } from './shared/effectResolver.js';
 
 function ensureBuildingState(state, registries) {
@@ -113,6 +124,7 @@ export function createEconomySystem() {
       store.update((draft) => {
         ensureBuildingState(draft, registries);
         ensurePreparationState(draft);
+        ensureCraftingState(draft);
         syncWorkforceState(draft);
         updateStorageCaps(draft, registries);
       }, { type: 'economy/setup' });
@@ -140,11 +152,28 @@ export function createEconomySystem() {
       bus.on('action:economy/refinePreparation', ({ preparationId }) => {
         refineBattlePreparation({ store, registries }, preparationId);
       });
+
+      bus.on('action:economy/forgeWeapon', ({ blueprintId }) => {
+        forgeWeapon({ store }, blueprintId);
+      });
+
+      bus.on('action:economy/strengthenWeapon', ({ weaponId }) => {
+        strengthenWeapon({ store }, weaponId);
+      });
+
+      bus.on('action:economy/dismantleWeapon', ({ weaponId }) => {
+        dismantleWeapon({ store }, weaponId);
+      });
+
+      bus.on('action:economy/brewPill', ({ recipeId }) => {
+        brewPill({ store }, recipeId);
+      });
     },
     tick({ store, registries }, deltaSeconds) {
       store.update((draft) => {
         ensureBuildingState(draft, registries);
         ensurePreparationState(draft);
+        ensureCraftingState(draft);
         syncWorkforceState(draft);
         updateStorageCaps(draft, registries);
 
@@ -326,6 +355,7 @@ export function getEconomyOverviewSnapshot(state, registries) {
   const populationCap = state.workforce.populationCap;
   const totalWorkers = state.workforce.totalWorkers;
   const preparations = getBattlePreparationSnapshot(state, registries);
+  const crafting = getManufacturingSnapshot(state, registries);
 
   return {
     workforce: {
@@ -373,6 +403,7 @@ export function getEconomyOverviewSnapshot(state, registries) {
     totalOfflineYield,
     offlineHours: OFFLINE_REWARD_LIMIT_SECONDS / 3600,
     preparations,
+    crafting,
   };
 }
 
@@ -526,6 +557,165 @@ export function getBattlePreparationSnapshot(state, registries) {
       totalEffects,
     };
   });
+}
+
+function getCraftRequirementLines(definition, registries, branch = 'weapon') {
+  const lines = [];
+  const workshopLevel = branch === 'weapon'
+    ? Math.max(Number(definition?.smithyLevel) || 0, 0)
+    : Math.max(Number(definition?.alchemyLevel) || 0, 0);
+  if (workshopLevel > 0) {
+    lines.push(`${branch === 'weapon' ? '锻炉' : '丹房'}等级 ${workshopLevel}`);
+  }
+  if ((definition?.requiredReputation ?? 0) > 0) {
+    lines.push(`委托声望 ${definition.requiredReputation}`);
+  }
+  if (definition?.requiredStageId) {
+    lines.push(`关卡 ${registries.stages.get(definition.requiredStageId)?.name ?? definition.requiredStageId}`);
+  }
+  if (definition?.requiredNodeId) {
+    lines.push(`科技 ${registries.techNodes.get(definition.requiredNodeId)?.name ?? definition.requiredNodeId}`);
+  }
+  return lines;
+}
+
+function decorateManufacturingDefinition(definition, registries, branch = 'weapon') {
+  return {
+    ...definition,
+    requirements: getCraftRequirementLines(definition, registries, branch),
+  };
+}
+
+export function getManufacturingSnapshot(state, registries) {
+  const snapshot = getCraftingSnapshot(state);
+  const unlockedBlueprints = snapshot.arsenal.blueprints
+    .filter((definition) => definition.unlocked)
+    .map((definition) => decorateManufacturingDefinition(definition, registries, 'weapon'));
+  const lockedBlueprints = snapshot.arsenal.blueprints
+    .filter((definition) => !definition.unlocked)
+    .map((definition) => decorateManufacturingDefinition(definition, registries, 'weapon'));
+  const unlockedRecipes = snapshot.alchemy.recipes
+    .filter((definition) => definition.unlocked)
+    .map((definition) => decorateManufacturingDefinition(definition, registries, 'pill'));
+  const lockedRecipes = snapshot.alchemy.recipes
+    .filter((definition) => !definition.unlocked)
+    .map((definition) => decorateManufacturingDefinition(definition, registries, 'pill'));
+
+  return {
+    arsenal: {
+      ...snapshot.arsenal,
+      unlockedBlueprints,
+      lockedBlueprints: lockedBlueprints.slice(0, 6),
+    },
+    alchemy: {
+      ...snapshot.alchemy,
+      unlockedRecipes,
+      lockedRecipes: lockedRecipes.slice(0, 6),
+    },
+  };
+}
+
+export function forgeWeapon({ store }, blueprintId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCraftingState(draft);
+    const snapshot = getCraftingSnapshot(draft);
+    const blueprint = snapshot.arsenal.blueprints.find((entry) => entry.id === blueprintId);
+    if (!blueprint?.unlocked || !payCraftCost(draft, blueprint.cost)) {
+      return;
+    }
+
+    const forged = forgeWeaponInState(draft, blueprintId);
+    if (!forged) {
+      return;
+    }
+
+    appendLog(
+      draft,
+      'economy',
+      `锻成 ${forged.name} · ${forged.qualityLabel}，附带 ${forged.affixes?.map((effect) => effect.name).join('、') || '无词条'}`,
+    );
+    success = true;
+  }, { type: 'economy/forge-weapon', blueprintId });
+
+  return success;
+}
+
+export function strengthenWeapon({ store }, weaponId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCraftingState(draft);
+    const snapshot = getCraftingSnapshot(draft);
+    const weapon = snapshot.arsenal.inventory.find((entry) => entry.id === weaponId);
+    if (!weapon) {
+      return;
+    }
+
+    const cost = getWeaponStrengthenCost(weapon);
+    if (!payCraftCost(draft, cost)) {
+      return;
+    }
+
+    const updated = strengthenWeaponInState(draft, weaponId);
+    if (!updated) {
+      return;
+    }
+
+    appendLog(draft, 'economy', `${weapon.name} 强化至 +${(updated.strengthenLevel ?? 0)}`);
+    success = true;
+  }, { type: 'economy/strengthen-weapon', weaponId });
+
+  return success;
+}
+
+export function dismantleWeapon({ store }, weaponId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCraftingState(draft);
+    const result = dismantleWeaponInState(draft, weaponId);
+    if (!result) {
+      return;
+    }
+
+    appendLog(
+      draft,
+      'economy',
+      `分解 ${result.weapon.name}，回收器魂 ${result.reward.weaponEssence ?? 0}`,
+    );
+    success = true;
+  }, { type: 'economy/dismantle-weapon', weaponId });
+
+  return success;
+}
+
+export function brewPill({ store }, recipeId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCraftingState(draft);
+    const snapshot = getCraftingSnapshot(draft);
+    const recipe = snapshot.alchemy.recipes.find((entry) => entry.id === recipeId);
+    if (!recipe?.unlocked || !payCraftCost(draft, recipe.cost)) {
+      return;
+    }
+
+    const brewed = brewPillRecipeInState(draft, recipeId);
+    if (!brewed) {
+      return;
+    }
+
+    appendLog(
+      draft,
+      'economy',
+      `炼成 ${brewed.name} · ${brewed.potencyLabel}，可供 ${brewed.servings ?? 1} 次调剂`,
+    );
+    success = true;
+  }, { type: 'economy/brew-pill', recipeId });
+
+  return success;
 }
 
 

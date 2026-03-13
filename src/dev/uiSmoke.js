@@ -335,6 +335,76 @@ async function runSmoke() {
       return `交易次数 ${beforeTrade} -> ${afterState.trade.totalExchanged}，养气丹录 ${beforePreparation} -> ${afterState.preparations?.levels?.['alchemy-tonic'] ?? 0}`;
     });
 
+    await runCase('Forge And Alchemy Craft Loop', async () => {
+      harness.ensureResources({
+        lingStone: 50000,
+        wood: 8000,
+        herb: 8000,
+        iron: 8000,
+        pills: 2400,
+        talisman: 1400,
+        spiritCrystal: 1600,
+      });
+      harness.app.store.update((draft) => {
+        draft.scripture.unlockedNodes = [...new Set([
+          ...(draft.scripture.unlockedNodes ?? []),
+          'wanwu-shengfa',
+          'fansu-shangdao',
+          'bingdao-chushi',
+          'tiandi-zhenwen',
+          'wuxing-xiangsheng',
+          'qimen-dunjia',
+          'zhangu-jiwu',
+          'wanling-ganying',
+          'youming-dujing',
+          'huanxin-mizang',
+          'shenbing-bailian',
+          'danxin-dao',
+        ])];
+        draft.buildings.smithy = { ...(draft.buildings.smithy ?? {}), level: Math.max(draft.buildings.smithy?.level ?? 0, 4) };
+        draft.buildings.alchemy = { ...(draft.buildings.alchemy ?? {}), level: Math.max(draft.buildings.alchemy?.level ?? 0, 4) };
+        draft.commissions.reputation = Math.max(draft.commissions?.reputation ?? 0, 120);
+        draft.commissions.affairsCredit = Math.max(draft.commissions?.affairsCredit ?? 0, 80);
+        draft.war.clearedStages = [...new Set([
+          ...(draft.war.clearedStages ?? []),
+          'stage-cultivation-2',
+          'stage-cultivation-3',
+          'stage-ancient-1',
+          'stage-ancient-2',
+          'stage-ancient-3',
+        ])];
+      }, { type: 'smoke/crafting-setup' });
+      harness.goToTab('economy');
+      assert(root.textContent.includes('锻炉百兵'), '经济页未渲染锻炉百兵');
+      assert(root.textContent.includes('丹阁百方'), '经济页未渲染丹阁百方');
+      const beforeState = harness.app.store.getState();
+      const beforeWeaponCount = beforeState.crafting?.forgedWeapons?.length ?? 0;
+      const beforePillCount = beforeState.crafting?.brewedPills?.length ?? 0;
+      const beforeEssence = beforeState.crafting?.weaponEssence ?? 0;
+      clickAction('forge-weapon', (element) => !element.disabled);
+      clickAction('forge-weapon', (element) => !element.disabled);
+      let craftingState = harness.app.store.getState();
+      assert((craftingState.crafting?.forgedWeapons?.length ?? 0) >= beforeWeaponCount + 2, '锻造未生成武器库存');
+      const forgedWeapons = craftingState.crafting.forgedWeapons ?? [];
+      const dismantleTargetId = forgedWeapons[0]?.id;
+      const strengthenTargetId = forgedWeapons[1]?.id;
+      assert(dismantleTargetId && strengthenTargetId, '锻造后武器数量不足以验证分解与强化');
+      clickAction('dismantle-weapon', (element) => element.dataset.weaponId === dismantleTargetId);
+      craftingState = harness.app.store.getState();
+      assert((craftingState.crafting?.weaponEssence ?? 0) > beforeEssence, '分解武器未回收器魂');
+      const strengthenBefore = (craftingState.crafting?.forgedWeapons ?? []).find((weapon) => weapon.id === strengthenTargetId)?.strengthenLevel ?? 0;
+      clickAction('strengthen-weapon', (element) => element.dataset.weaponId === strengthenTargetId && !element.disabled);
+      craftingState = harness.app.store.getState();
+      const strengthenAfter = (craftingState.crafting?.forgedWeapons ?? []).find((weapon) => weapon.id === strengthenTargetId)?.strengthenLevel ?? 0;
+      assert(strengthenAfter > strengthenBefore, `武器强化未生效: before=${strengthenBefore}, after=${strengthenAfter}`);
+      clickAction('brew-pill', (element) => !element.disabled);
+      craftingState = harness.app.store.getState();
+      assert((craftingState.crafting?.brewedPills?.length ?? 0) > beforePillCount, '炼丹未生成成药批次');
+      assert(root.textContent.includes('器库库存'), '经济页未渲染器库库存');
+      assert(root.textContent.includes('成药库存'), '经济页未渲染成药库存');
+      return `锻造库存 ${beforeWeaponCount} -> ${craftingState.crafting?.forgedWeapons?.length ?? 0}，器魂 ${beforeEssence} -> ${craftingState.crafting?.weaponEssence ?? 0}，强化 ${strengthenBefore} -> ${strengthenAfter}，成药 ${beforePillCount} -> ${craftingState.crafting?.brewedPills?.length ?? 0}`;
+    });
+
     await runCase('Warehouse Seal And Strategy Flow', async () => {
       harness.ensureResources({
         lingStone: 4000,

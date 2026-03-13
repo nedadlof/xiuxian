@@ -3597,3 +3597,113 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 15/15`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-13 炼丹锻造百谱与随机装备闭环
+
+- Main goal:
+  - turn alchemy and smithy from passive permanent-upgrade buttons into an actual long-term crafting sink
+  - make production, commissions, and battle loot all feed into a replayable workshop loop:
+    - forge random weapons
+    - strengthen good rolls
+    - dismantle weak rolls
+    - brew high-value pill batches
+    - let the strongest crafted items auto-activate for combat and economy bonuses
+
+- New data and shared crafting layer:
+  - added `src/data/craftingCatalog.js`
+  - added `src/systems/shared/crafting.js`
+  - current catalog scale:
+    - `108` weapon blueprints
+    - `108` pill recipes
+  - blueprints / recipes are generated from family + tradition / doctrine combinations, so the system is large enough now and easy to extend later
+  - weapon crafting now includes:
+    - random quality roll
+    - random affix roll
+    - strengthen scaling
+    - dismantle return
+  - pill crafting now includes:
+    - random potency roll
+    - batch size variance
+    - automatic strongest-batch activation
+
+- Save and state update:
+  - upgraded `src/core/store.js`
+  - added persistent crafting state:
+    - `crafting.seed`
+    - `crafting.weaponCounter`
+    - `crafting.pillCounter`
+    - `crafting.weaponEssence`
+    - `crafting.forgedWeapons`
+    - `crafting.brewedPills`
+  - crafting randomness uses deterministic seeded rolls instead of direct `Math.random()`
+  - this keeps weapon randomness present for the player but stable enough for smoke testing
+
+- Economy system upgrade:
+  - upgraded `src/systems/economySystem.js`
+  - added new actions:
+    - `forgeWeapon`
+    - `strengthenWeapon`
+    - `dismantleWeapon`
+    - `brewPill`
+  - advanced weapon / pill entries now naturally depend on:
+    - smithy / alchemy building levels
+    - commission reputation
+    - affairs credit
+    - cleared battle stages
+    - scripture tech unlocks
+  - this makes commissions and combat progression part of the manufacturing loop rather than isolated systems
+
+- Effect bus integration:
+  - upgraded `src/systems/shared/effectResolver.js`
+  - active forged weapons and active brewed pills now inject effects into the existing global effect pipeline
+  - reused the same existing effect families where possible:
+    - `battleAttack`
+    - `battleDefense`
+    - `battleSustain`
+    - `battleLoot`
+    - `unitPowerMultiplier`
+    - `resourceMultiplier`
+  - current behavior:
+    - strongest forged weapons auto-fill the arsenal slots
+    - strongest pill batches auto-fill the pill case slots
+    - both immediately affect battle and production balance without requiring extra wiring
+
+- UI update:
+  - upgraded `src/ui/panels/economyPanel.js`
+  - upgraded `src/ui/economyEvents.js`
+  - economy page now includes:
+    - `锻炉百兵`
+    - `丹阁百方`
+  - the player can now:
+    - forge unlocked weapon blueprints
+    - inspect random affixes
+    - strengthen a weapon
+    - dismantle a weapon for `器魂`
+    - brew unlocked pill recipes
+    - inspect currently active arsenal / pill-case effects
+    - preview upcoming unlock requirements
+
+- Smoke update:
+  - upgraded `src/dev/uiSmoke.js`
+  - added `Forge And Alchemy Craft Loop`
+  - smoke now verifies:
+    - economy page renders new forge/alchemy workshop sections
+    - forging produces weapon inventory
+    - dismantling returns `器魂`
+    - strengthening consumes the crafting loop and raises weapon level
+    - brewing produces pill batches
+    - workshop inventory UI remains visible after actions
+
+- Verified locally:
+  - `node --check src/data/craftingCatalog.js`
+  - `node --check src/systems/shared/crafting.js`
+  - `node --check src/core/store.js`
+  - `node --check src/systems/economySystem.js`
+  - `node --check src/systems/shared/effectResolver.js`
+  - `node --check src/ui/economyEvents.js`
+  - `node --check src/ui/panels/economyPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 90`
+  - result:
+    - `SMOKE PASS 16/16`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
