@@ -1,6 +1,6 @@
-import { createGameApp } from '../app.js?v=20260310-11';
+import { createGameApp } from '../app.js?v=20260312-warehouse';
 import { SAVE_KEY } from '../core/save.js';
-import { renderGame } from '../ui/renderApp.js?v=20260310-11';
+import { renderGame } from '../ui/renderApp.js?v=20260312-warehouse';
 import { APP_TABS } from '../ui/tabConfig.js';
 
 const statusEl = document.getElementById('smoke-status');
@@ -15,9 +15,10 @@ let reportPublished = false;
 const TAB_EXPECTATIONS = {
   overview: '宗门概览',
   economy: '工人与宿舍',
+  warehouse: '宗门仓库',
   scripture: '藏经阁',
   barracks: '兵营',
-  war: '关卡推进',
+  war: '战斗总览',
   disciples: '弟子堂',
   beasts: '万象森罗录',
   logs: '宗门日志',
@@ -283,26 +284,87 @@ async function runSmoke() {
 
     await runCase('Barracks Recruit And Arrange', async () => {
       harness.ensureResearchPath(['wanwu-shengfa', 'fansu-shangdao', 'bingdao-chushi']);
+      harness.ensureResources({ lingStone: 5000, wood: 1200, herb: 600, iron: 400, pills: 120, talisman: 120 });
       harness.goToTab('barracks');
       const beforeUnits = totalTrainedUnits(harness.app.store.getState());
       clickAction('train-unit', (element) => element.dataset.amount === '5');
       const afterTrain = totalTrainedUnits(harness.app.store.getState());
       assert(afterTrain >= beforeUnits + 5, `招募未生效: before=${beforeUnits}, after=${afterTrain}`);
       clickAction('auto-arrange');
+      const beforeFormation = harness.app.store.getState().war.formationId;
+      const beforePreparedUnits = totalTrainedUnits(harness.app.store.getState());
+      const applyButton = root.querySelector('[data-action="apply-recommended-formation"]');
+      if (applyButton) {
+        applyButton.click();
+      }
+      const afterState = harness.app.store.getState();
+      const afterFormation = afterState.war.formationId;
+      const afterPreparedUnits = totalTrainedUnits(afterState);
+      const recommendedUnit = harness.app.registries.units.list().find((unit) => (afterState.war.trainedUnits?.[unit.id] ?? 0) > 0);
+      if (recommendedUnit) {
+        assert((afterState.war.formationRows?.[recommendedUnit.id] ?? 0) > 0, `推荐整备未写入站位: ${recommendedUnit.id}`);
+      }
+      assert(afterPreparedUnits >= beforePreparedUnits, `推荐整备未补兵: before=${beforePreparedUnits}, after=${afterPreparedUnits}`);
       assert(root.textContent.includes('阵型加成'), '兵营页未渲染阵型加成');
-      return `兵种数量 ${beforeUnits} -> ${afterTrain}`;
+      assert(root.textContent.includes('兵种克制'), '兵营页未渲染兵种克制');
+      assert(root.textContent.includes('推荐配队'), '兵营页未渲染推荐配队');
+      return `兵种数量 ${beforeUnits} -> ${afterPreparedUnits}，阵法 ${beforeFormation} -> ${afterFormation}`;
     });
 
-    await runCase('Trade Exchange Flow', async () => {
-      harness.ensureResearchPath(['wanwu-shengfa', 'fansu-shangdao']);
+    await runCase('Trade Exchange And Preparation Flow', async () => {
+      harness.ensureResources({
+        herb: 1200,
+        pills: 240,
+        iron: 480,
+        wood: 1600,
+        talisman: 180,
+        spiritCrystal: 120,
+      });
+      harness.ensureResearchPath(['wanwu-shengfa', 'fansu-shangdao', 'bingdao-chushi', 'tiandi-zhenwen', 'wuxing-xiangsheng', 'qimen-dunjia']);
       harness.goToTab('economy');
       const beforeTrade = harness.app.store.getState().trade.totalExchanged;
+      const beforePreparation = harness.app.store.getState().preparations?.levels?.['alchemy-tonic'] ?? 0;
       const routeButton = findActionElement('trade-route', (element) => !element.disabled && element.dataset.multiplier === '1');
       routeButton.click();
+      clickAction('refine-preparation', (element) => element.dataset.id === 'alchemy-tonic');
       const afterState = harness.app.store.getState();
       assert(afterState.trade.totalExchanged > beforeTrade, `交易未生效: before=${beforeTrade}, after=${afterState.trade.totalExchanged}`);
+      assert((afterState.preparations?.levels?.['alchemy-tonic'] ?? 0) > beforePreparation, `战备炼制未生效: before=${beforePreparation}, after=${afterState.preparations?.levels?.['alchemy-tonic'] ?? 0}`);
       assert(root.textContent.includes('交易坊'), '产业页未渲染交易坊');
-      return `交易次数 ${beforeTrade} -> ${afterState.trade.totalExchanged}`;
+      assert(root.textContent.includes('战备炼制'), '产业页未渲染战备炼制');
+      return `交易次数 ${beforeTrade} -> ${afterState.trade.totalExchanged}，养气丹录 ${beforePreparation} -> ${afterState.preparations?.levels?.['alchemy-tonic'] ?? 0}`;
+    });
+
+    await runCase('Warehouse Seal And Strategy Flow', async () => {
+      harness.ensureResources({
+        lingStone: 4000,
+        spiritCrystal: 200,
+        herb: 1200,
+        wood: 1400,
+        pills: 120,
+      });
+      harness.goToTab('warehouse');
+      assert(root.textContent.includes('仓储法策'), '仓库页未渲染仓储法策');
+      const beforeState = harness.app.store.getState();
+      const beforeSealTotal = Object.values(beforeState.warehouse?.seals ?? {}).reduce((sum, value) => sum + (value ?? 0), 0);
+      clickAction('warehouse-seal', (element) => element.dataset.id === 'spirit-cellar');
+      clickAction('warehouse-seal', (element) => element.dataset.id === 'herbal-rack');
+      let state = harness.app.store.getState();
+      assert((state.warehouse?.seals?.['spirit-cellar'] ?? 0) >= 1, '灵泉地窖未成功封存');
+      assert((state.warehouse?.seals?.['herbal-rack'] ?? 0) >= 1, '百草封架未成功封存');
+      const afterManualSealTotal = Object.values(state.warehouse?.seals ?? {}).reduce((sum, value) => sum + (value ?? 0), 0);
+      clickAction('set-warehouse-strategy', (element) => element.dataset.id === 'growth-cycle');
+      state = harness.app.store.getState();
+      assert(state.warehouse?.activeStrategyId === 'growth-cycle', `仓策未切换成功: ${state.warehouse?.activeStrategyId}`);
+      clickAction('toggle-warehouse-auto-seal');
+      state = harness.app.store.getState();
+      assert(state.warehouse?.autoSealEnabled, '仓库自动封存未开启');
+      harness.app.engine.runTick(1, 'smoke');
+      state = harness.app.store.getState();
+      const afterSealTotal = Object.values(state.warehouse?.seals ?? {}).reduce((sum, value) => sum + (value ?? 0), 0);
+      assert(afterManualSealTotal >= beforeSealTotal + 2, `手动封存次数异常: before=${beforeSealTotal}, afterManual=${afterManualSealTotal}`);
+      assert(afterSealTotal > afterManualSealTotal, `自动封存未追加次数: manual=${afterManualSealTotal}, after=${afterSealTotal}`);
+      return `总仓阶=${Object.values(state.warehouse?.seals ?? {}).join('/')}，仓策=${state.warehouse?.activeStrategyId}`;
     });
 
     await runCase('Disciples Train And Team Flow', async () => {
@@ -363,8 +425,11 @@ async function runSmoke() {
       harness.goToTab('missions');
       assert(root.textContent.includes('宗门风向'), 'Commission theme panel missing');
       assert(root.textContent.includes('委派阶位'), 'Commission standing panel missing');
+      assert(root.textContent.includes('执务策令'), 'Commission directive panel missing');
       assert(root.textContent.includes('专长命中'), 'Commission affinity summary missing');
+      clickAction('select-commission-directive', (element) => element.dataset.id === 'all-domain-gazette' && !element.disabled);
       const beforeState = harness.app.store.getState();
+      assert(beforeState.commissions?.activeDirectiveId === 'all-domain-gazette', 'Commission directive was not selected');
       assert(beforeState.commissions?.currentThemeId, 'Commission theme was not initialized');
       assert((beforeState.commissions?.currentThemeExpiresAt ?? 0) > Date.now(), 'Commission theme expiry missing');
       const beforeReputation = beforeState.commissions?.reputation ?? 0;
@@ -402,6 +467,10 @@ async function runSmoke() {
       const afterState = harness.app.store.getState();
       assert(afterState.commissions?.history?.some((entry) => entry.resultType === 'completed'), 'Completed commission missing from history');
       assert((afterState.commissions?.reputation ?? 0) > beforeReputation, 'Commission claim did not increase reputation');
+      assert(afterState.commissions?.directiveRewardReady, 'Commission directive did not reach reward-ready state');
+      clickAction('claim-commission-directive');
+      const afterDirectiveState = harness.app.store.getState();
+      assert((afterDirectiveState.commissions?.completedDirectiveCount ?? 0) > (afterState.commissions?.completedDirectiveCount ?? 0), 'Commission directive reward was not claimed');
       assert(root.textContent.includes('卷宗悬案'), 'Commission case file panel missing');
       const caseButton = [...root.querySelectorAll('[data-action="start-commission"]')].find((element) => element.dataset.sourceType === 'case' && !element.disabled);
       assert(caseButton, 'No commission case file became dispatchable');
@@ -450,7 +519,7 @@ async function runSmoke() {
       return `刷新委托榜并验证中断/冷却，含卷宗结案与自动排程，历史 ${commissionState.commissions.history.length} 条`;
     });
 
-    await runCase('War Auto Preferences And Controls', async () => {
+    await runCase('War Auto Preferences And Quick Flow', async () => {
       harness.goToTab('war');
       clickAction('battle-auto-strategy', (element) => element.dataset.id === 'focus-lowest-hp');
       clickAction('battle-auto-speed', (element) => element.dataset.id === 'fast');
@@ -459,87 +528,70 @@ async function runSmoke() {
       assert(state.war.autoPreferences?.strategyId === 'focus-lowest-hp', `默认自动战斗策略未更新: ${state.war.autoPreferences?.strategyId}`);
       assert(state.war.autoPreferences?.speedId === 'fast', `默认自动战斗速度未更新: ${state.war.autoPreferences?.speedId}`);
 
-      clickAction('challenge-stage', (element) => !element.disabled && element.dataset.id === state.war.currentStageId);
+      const beforeReports = state.war.battleReports.length;
+      clickAction('quick-challenge-stage', (element) => !element.disabled && element.dataset.id === state.war.currentStageId);
       state = harness.app.store.getState();
-      assert(state.war.currentBattle, '自动战斗用例未成功发起战斗');
-      assert(state.war.currentBattle.autoStrategy === 'focus-lowest-hp', `战斗内自动策略未继承: ${state.war.currentBattle.autoStrategy}`);
-      assert(state.war.currentBattle.autoSpeed === 'fast', `战斗内自动速度未继承: ${state.war.currentBattle.autoSpeed}`);
+      assert(state.war.battleReports.length > beforeReports, `一键挑战未生成战报: before=${beforeReports}, after=${state.war.battleReports.length}`);
+      assert(root.textContent.includes('最近战果'), '战争页未渲染最近战果');
+      assert(root.textContent.includes('本关联动收益'), '战争页未渲染本关联动收益');
 
-      clickAction('battle-auto-toggle');
-      state = harness.app.store.getState();
-      assert(state.war.currentBattle?.autoMode === true, '自动战斗开关未开启');
-
-      clickAction('battle-auto-strategy', (element) => element.dataset.id === 'focus-backline');
-      clickAction('battle-auto-speed', (element) => element.dataset.id === 'slow');
-      state = harness.app.store.getState();
-      assert(state.war.currentBattle?.autoStrategy === 'focus-backline', `战斗内自动策略未切换: ${state.war.currentBattle?.autoStrategy}`);
-      assert(state.war.currentBattle?.autoSpeed === 'slow', `战斗内自动速度未切换: ${state.war.currentBattle?.autoSpeed}`);
-
-      clickAction('battle-retreat');
-      state = harness.app.store.getState();
-      assert(!state.war.currentBattle, '撤退后战斗未结束');
-      return '默认偏好已保存，战斗内自动模式/策略/速度切换成功并可正常撤退';
+      const latestReport = state.war.battleReports[0];
+      assert(latestReport, '一键挑战后缺少最新战报');
+      return `默认偏好已保存，一键挑战成功产出战报 ${beforeReports} -> ${state.war.battleReports.length}，最近战果=${latestReport.stageName}`;
     });
 
-    await runCase('War Battle Loop', async () => {
+    await runCase('War Battle Reward Linkage', async () => {
+      harness.app.store.update((draft) => {
+        draft.buildings.alchemy = { ...(draft.buildings.alchemy ?? {}), level: Math.max(draft.buildings.alchemy?.level ?? 0, 1) };
+        draft.buildings.smithy = { ...(draft.buildings.smithy ?? {}), level: Math.max(draft.buildings.smithy?.level ?? 0, 1) };
+        draft.buildings.talismanWorkshop = { ...(draft.buildings.talismanWorkshop ?? {}), level: Math.max(draft.buildings.talismanWorkshop?.level ?? 0, 1) };
+        draft.war.currentStageId = 'stage-mortal-1';
+        draft.war.trainedUnits['shield-guard'] = Math.max(draft.war.trainedUnits['shield-guard'] ?? 0, 18);
+        draft.war.trainedUnits['spirit-archer'] = Math.max(draft.war.trainedUnits['spirit-archer'] ?? 0, 18);
+        const unlockedBeastId = draft.beasts.unlocked?.[0] ?? null;
+        if (unlockedBeastId && !draft.beasts.activeIds.includes(unlockedBeastId)) {
+          draft.beasts.activeIds.push(unlockedBeastId);
+        }
+      }, { type: 'smoke/war-linked-reward-setup' });
       harness.goToTab('war');
       const beforeReports = harness.app.store.getState().war.battleReports.length;
-      clickAction('challenge-stage', (element) => !element.disabled && element.dataset.id === harness.app.store.getState().war.currentStageId);
-      assert(harness.app.store.getState().war.currentBattle, '未成功发起战斗');
-
-      let steps = 0;
-      while (harness.app.store.getState().war.currentBattle && steps < 24) {
-        const targetButton = root.querySelector('[data-action="select-battle-target"]');
-        if (targetButton) {
-          targetButton.click();
-        }
-        clickAction('battle-attack');
-        clearUiTimers(harness.uiState);
-        steps += 1;
-      }
+      clickAction('quick-challenge-stage', (element) => !element.disabled && element.dataset.id === harness.app.store.getState().war.currentStageId);
 
       const afterState = harness.app.store.getState();
       const afterReports = afterState.war.battleReports.length;
-      assert((afterState.war.battleReports?.[0]?.expeditionSupport?.bondCount ?? 0) > 0, '战报未记录出征羁绊');
       assert(afterReports > beforeReports, `战斗未生成战报: before=${beforeReports}, after=${afterReports}`);
-      assert(root.textContent.includes('战斗回放'), '战争页未渲染战斗回放');
-      assert(root.textContent.includes('历次战报'), '战争页未渲染历次战报');
-      return `完成战斗指令 ${steps} 次，战报 ${beforeReports} -> ${afterReports}`;
+      const latestReport = afterState.war.battleReports?.[0];
+      assert(latestReport?.victory, `联动奖励验证战斗失败: ${JSON.stringify({ victory: latestReport?.victory, reward: latestReport?.reward })}`);
+      const linkedReward = latestReport?.rewardBreakdown?.linkedReward ?? {};
+      assert(Object.keys(linkedReward).length > 0, `战报未写入联动奖励: ${JSON.stringify(linkedReward)}`);
+      assert((latestReport?.expeditionSupport?.memberNames?.length ?? 0) > 0, '战报未记录出征弟子');
+      assert(root.textContent.includes('联动掉落'), '战争页未展示联动掉落');
+      return `战报 ${beforeReports} -> ${afterReports}，联动奖励=${JSON.stringify(linkedReward)}`;
     });
 
-    await runCase('War Replay Controls', async () => {
+    await runCase('War Stage Surface Simplicity', async () => {
       harness.goToTab('war');
-      const report = harness.app.store.getState().war.battleReports[0];
-      assert(report, '不存在可回放的战报');
-      assert((report.rounds?.length ?? 0) > 0, '战报没有可回放回合');
-
-      harness.uiState.warSelectedReportId = report.id;
-      renderGame(root, harness.app, harness.uiState);
-
-      const beforeReplay = { ...(harness.uiState.warReplay ?? {}) };
-      clickAction('war-replay-speed', (element) => element.dataset.speed === '850');
-      assert(harness.uiState.warReplay?.speedMs === 850, `回放速度未切换: ${harness.uiState.warReplay?.speedMs}`);
-
-      clickAction('war-replay-next');
-      const afterNext = harness.uiState.warReplay ?? {};
-      const advanced = (afterNext.roundIndex ?? 0) > (beforeReplay.roundIndex ?? 0)
-        || (afterNext.actionIndex ?? 0) > (beforeReplay.actionIndex ?? 0);
-      assert(advanced, `回放未前进一步: before=${JSON.stringify(beforeReplay)}, after=${JSON.stringify(afterNext)}`);
-
-      const jumpButtons = [...root.querySelectorAll('[data-action="war-replay-jump"]')];
-      const jumpTarget = jumpButtons[jumpButtons.length - 1];
-      assert(jumpTarget, '未找到回放跳转按钮');
-      jumpTarget.click();
-      const expectedRound = Number(jumpTarget.dataset.round) || 0;
-      assert((harness.uiState.warReplay?.roundIndex ?? -1) === expectedRound, `回放跳转失败: expected=${expectedRound}, actual=${harness.uiState.warReplay?.roundIndex}`);
-
-      clickAction('war-replay-reset');
-      assert((harness.uiState.warReplay?.roundIndex ?? -1) === 0 && (harness.uiState.warReplay?.actionIndex ?? -1) === 0, '回放重置失败');
-      return `回放速度=${harness.uiState.warReplay?.speedMs}，跳转回合=${expectedRound}，已重置到开场`;
+      assert(root.textContent.includes('战斗总览'), '战争页未渲染战斗总览');
+      assert(root.textContent.includes('战前建议'), '战争页未渲染战前建议');
+      assert(root.textContent.includes('兵种克制'), '战争页未渲染兵种克制');
+      assert(root.textContent.includes('推荐配队'), '战争页未渲染推荐配队');
+      assert(root.querySelector('[data-action="apply-recommended-formation"]'), '战争页未提供一键套用推荐');
+      if (root.textContent.includes('本次整备仍缺')) {
+        assert(root.textContent.includes('优先补'), '战争页缺少整备差额引导');
+      }
+      assert(root.textContent.includes('一键挑战') || root.textContent.includes('再次扫荡'), '战争页未提供简化挑战入口');
+      assert(!root.textContent.includes('战斗回放'), '战争页仍保留旧版战斗回放入口');
+      assert(!root.textContent.includes('历次战报'), '战争页仍保留旧版历次战报大面板');
+      const adviceButton = root.querySelector('[data-action="switch-tab"][data-tab="economy"], [data-action="switch-tab"][data-tab="disciples"], [data-action="switch-tab"][data-tab="beasts"]');
+      assert(adviceButton, '战前建议未提供强化跳转入口');
+      adviceButton.click();
+      assert(['economy', 'disciples', 'beasts'].includes(harness.app.store.getState().meta.activeTab), '战前建议跳转未生效');
+      harness.goToTab('war');
+      return '战争页已收敛为总览 + 战前建议 + 联动收益 + 最近战果 + 关卡列表的简化主流程';
     });
 
     await runCase('Beasts Unlock And Toggle', async () => {
-      harness.ensureResources({ beastShard: 3 });
+      harness.ensureResources({ beastShard: 12, spiritCrystal: 160, pills: 120, talisman: 80 });
       harness.ensureResearchPath([
         'wanwu-shengfa',
         'fansu-shangdao',
@@ -550,16 +602,56 @@ async function runSmoke() {
         'zhangu-jiwu',
         'wanling-ganying',
       ]);
+      harness.app.store.update((draft) => {
+        draft.war.currentStageId = 'stage-mortal-2';
+        for (const extraBeastId of ['earthfiend-shadowwolf', 'jiuying', 'qiongqi']) {
+          if (!draft.beasts.unlocked.includes(extraBeastId)) {
+            draft.beasts.unlocked.push(extraBeastId);
+          }
+        }
+        draft.beasts.activeIds = [];
+        draft.beasts.awakeningLevels.qiongqi = Math.max(draft.beasts.awakeningLevels?.qiongqi ?? 0, 2);
+        draft.beasts.awakeningLevels.jiuying = Math.max(draft.beasts.awakeningLevels?.jiuying ?? 0, 1);
+        draft.beasts.bondLevels.qiongqi = Math.max(draft.beasts.bondLevels?.qiongqi ?? 0, 3);
+        draft.beasts.bondLevels.jiuying = Math.max(draft.beasts.bondLevels?.jiuying ?? 0, 3);
+      }, { type: 'smoke/beast-lineup-setup' });
       harness.goToTab('beasts');
       const stateBefore = harness.app.store.getState();
       const beastId = stateBefore.beasts.unlocked[0];
       assert(beastId, '未解锁首只灵兽');
       const wasActive = stateBefore.beasts.activeIds.includes(beastId);
+      const beforeAwakening = stateBefore.beasts.awakeningLevels?.[beastId] ?? 0;
+      const beforeBond = stateBefore.beasts.bondLevels?.[beastId] ?? 0;
+      const beforeShard = stateBefore.resources?.beastShard ?? 0;
+      const beforeCrystal = stateBefore.resources?.spiritCrystal ?? 0;
       clickAction('toggle-beast', (element) => element.dataset.id === beastId);
+      clickAction('awaken-beast', (element) => element.dataset.id === beastId);
+      clickAction('temper-beast', (element) => element.dataset.id === beastId);
       const afterState = harness.app.store.getState();
       const isActive = afterState.beasts.activeIds.includes(beastId);
+      const afterAwakening = afterState.beasts.awakeningLevels?.[beastId] ?? 0;
+      const afterBond = afterState.beasts.bondLevels?.[beastId] ?? 0;
+      const afterShard = afterState.resources?.beastShard ?? 0;
+      const afterCrystal = afterState.resources?.spiritCrystal ?? 0;
+      const beforeApplyIds = [...(afterState.beasts.activeIds ?? [])];
       assert(isActive !== wasActive, '灵兽切换激活状态未生效');
-      return `灵兽 ${beastId} 激活状态 ${wasActive} -> ${isActive}`;
+      assert(afterAwakening > beforeAwakening, `灵兽觉醒未生效: before=${beforeAwakening}, after=${afterAwakening}`);
+      assert(afterBond > beforeBond, `灵兽灌灵未生效: before=${beforeBond}, after=${afterBond}`);
+      assert(afterShard < beforeShard, `灵兽觉醒未消耗碎片: before=${beforeShard}, after=${afterShard}`);
+      assert(afterCrystal < beforeCrystal, `灵兽灌灵未消耗灵晶: before=${beforeCrystal}, after=${afterCrystal}`);
+      const applyButton = root.querySelector('[data-action="apply-recommended-beasts"]');
+      assert(applyButton, '灵兽页未提供一键套用推荐兽阵');
+      assert(!applyButton.disabled, '推荐兽阵按钮被异常禁用');
+      applyButton.click();
+      const lineupState = harness.app.store.getState();
+      const afterApplyIds = [...(lineupState.beasts.activeIds ?? [])];
+      assert(afterApplyIds.length >= 3, `推荐兽阵未补齐阵列: ${afterApplyIds.join(',')}`);
+      assert(afterApplyIds.join(',') !== beforeApplyIds.join(','), `推荐兽阵未改变激活阵列: before=${beforeApplyIds.join(',')}, after=${afterApplyIds.join(',')}`);
+      assert(root.textContent.includes('灵兽养成'), '灵兽页未渲染养成说明');
+      assert(root.textContent.includes('兽契共鸣'), '灵兽页未渲染兽契共鸣');
+      assert(root.textContent.includes('灵兽羁绊'), '灵兽页未渲染灵兽羁绊');
+      assert(root.textContent.includes('灾庭猎阵'), '灵兽页未展示推荐兽阵羁绊');
+      return `灵兽 ${beastId} 激活状态 ${wasActive} -> ${isActive}，觉醒 ${beforeAwakening} -> ${afterAwakening}，兽契 ${beforeBond} -> ${afterBond}，推荐兽阵=${afterApplyIds.join('/')}`;
     });
 
     await runCase('Save And Hydrate Cycle', async () => {

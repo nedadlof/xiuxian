@@ -1,6 +1,7 @@
 const APP_TABS = Object.freeze([
   ['overview', '概览'],
   ['economy', '产业'],
+  ['warehouse', '仓库'],
   ['scripture', '藏经阁'],
   ['barracks', '兵营'],
   ['war', '战争'],

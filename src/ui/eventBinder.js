@@ -1,6 +1,7 @@
 import { handleWarUiAction } from './warEvents.js';
 import { handleCoreUiAction } from './coreEvents.js';
 import { handleEconomyUiAction } from './economyEvents.js';
+import { handleWarehouseUiAction } from './warehouseEvents.js';
 import { handleScriptureUiAction } from './scriptureEvents.js';
 import { handleTradeUiAction } from './tradeEvents.js';
 import { handleDisciplesUiAction } from './disciplesEvents.js';
@@ -36,6 +37,7 @@ function bindAppEvents({ root, app, uiState, helpers = {} }) {
       }
       if (handleCoreUiAction({ action, element, app })) return;
       if (handleEconomyUiAction({ action, element, app })) return;
+      if (handleWarehouseUiAction({ action, element, app })) return;
       if (handleScriptureUiAction({ action, element, app })) return;
       if (handleTradeUiAction({ action, element, app })) return;
       if (handleDisciplesUiAction({ action, element, root, app, uiState, state, helpers: { renderGame } })) return;

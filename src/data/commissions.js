@@ -401,6 +401,74 @@ const COMMISSION_CASE_FILE_DEFINITIONS = Object.freeze([
   },
 ]);
 
+const COMMISSION_DIRECTIVE_DEFINITIONS = Object.freeze([
+  {
+    id: 'all-domain-gazette',
+    name: '百务总牒',
+    description: '执务堂要求你先把宗门各路委托跑通，趁机摸清最近的外务脉络。',
+    unlockStandingId: 'outer-errand',
+    requiredProgress: 1,
+    preferredTags: ['resource', 'trade', 'escort', 'explore', 'defense', 'support', 'alchemy', 'patrol', 'control'],
+    focusScoreBonus: 18,
+    focusRewardBonus: { dao: 180, herb: 40 },
+    reward: { spiritCrystal: 12, dao: 1200, herb: 120 },
+    reputationReward: 8,
+    affairsCreditReward: 3,
+  },
+  {
+    id: 'market-watch',
+    name: '夜市稽查',
+    description: '近来坊市与押运线索繁杂，执务堂要求优先梳理商路、暗线与夜市情报。',
+    unlockStandingId: 'outer-errand',
+    requiredProgress: 2,
+    preferredTags: ['trade', 'escort', 'control'],
+    focusScoreBonus: 26,
+    focusRewardBonus: { lingStone: 120, dao: 180 },
+    reward: { lingStone: 280, spiritCrystal: 10, talisman: 8, dao: 1400 },
+    reputationReward: 10,
+    affairsCreditReward: 4,
+  },
+  {
+    id: 'verdant-provision',
+    name: '药脉整备',
+    description: '宗门近期要补充丹养与后勤储备，相关委托会被记入重点考绩。',
+    unlockStandingId: 'outer-errand',
+    requiredProgress: 2,
+    preferredTags: ['resource', 'alchemy', 'support'],
+    focusScoreBonus: 24,
+    focusRewardBonus: { herb: 80, pills: 8, dao: 120 },
+    reward: { herb: 220, pills: 18, spiritCrystal: 8, dao: 1300 },
+    reputationReward: 10,
+    affairsCreditReward: 4,
+  },
+  {
+    id: 'relic-probe',
+    name: '遗府勘签',
+    description: '执务堂要你集中筛查遗迹与秘库线索，为后续高阶卷宗提前铺路。',
+    unlockStandingId: 'hall-steward',
+    requiredProgress: 2,
+    preferredTags: ['explore', 'relic', 'rare'],
+    focusScoreBonus: 34,
+    focusRewardBonus: { discipleShard: 12, spiritCrystal: 6 },
+    reward: { discipleShard: 36, talisman: 14, spiritCrystal: 14, dao: 1700 },
+    reputationReward: 14,
+    affairsCreditReward: 5,
+  },
+  {
+    id: 'frontier-order',
+    name: '边巡整军',
+    description: '边境情势尚未完全稳住，巡防与镇压类委托会得到额外奖掖。',
+    unlockStandingId: 'hall-steward',
+    requiredProgress: 2,
+    preferredTags: ['defense', 'patrol', 'battle'],
+    focusScoreBonus: 30,
+    focusRewardBonus: { iron: 70, wood: 50, dao: 160 },
+    reward: { iron: 180, wood: 140, spiritCrystal: 10, dao: 1600 },
+    reputationReward: 12,
+    affairsCreditReward: 5,
+  },
+]);
+
 const COMMISSION_DEFINITIONS = Object.freeze([
   {
     id: 'herb-ridge-patrol',
@@ -1063,6 +1131,20 @@ function cloneCaseFileDefinition(definition = {}) {
   };
 }
 
+function cloneDirectiveDefinition(definition = {}) {
+  return {
+    ...definition,
+    unlockStandingId: definition.unlockStandingId ?? null,
+    requiredProgress: Math.max(Number(definition.requiredProgress) || 0, 1),
+    preferredTags: [...(definition.preferredTags ?? [])],
+    focusScoreBonus: Math.max(Number(definition.focusScoreBonus) || 0, 0),
+    focusRewardBonus: cloneRewardMap(definition.focusRewardBonus),
+    reward: cloneRewardMap(definition.reward),
+    reputationReward: Math.max(Number(definition.reputationReward) || 0, 0),
+    affairsCreditReward: Math.max(Number(definition.affairsCreditReward) || 0, 0),
+  };
+}
+
 function cloneCommissionEventDefinition(definition = {}) {
   return {
     ...definition,
@@ -1293,6 +1375,10 @@ export function listCommissionCaseFileDefinitions() {
   return COMMISSION_CASE_FILE_DEFINITIONS.map((definition) => cloneCaseFileDefinition(definition));
 }
 
+export function listCommissionDirectiveDefinitions() {
+  return COMMISSION_DIRECTIVE_DEFINITIONS.map((definition) => cloneDirectiveDefinition(definition));
+}
+
 export function listSpecialCommissionDefinitions() {
   return SPECIAL_COMMISSION_DEFINITIONS.map((definition) => cloneDefinition(definition));
 }
@@ -1339,6 +1425,11 @@ export function getCommissionAffairsShopDefinition(itemId) {
 export function getCommissionCaseFileDefinition(caseFileId) {
   const definition = COMMISSION_CASE_FILE_DEFINITIONS.find((item) => item.id === caseFileId);
   return definition ? cloneCaseFileDefinition(definition) : null;
+}
+
+export function getCommissionDirectiveDefinition(directiveId) {
+  const definition = COMMISSION_DIRECTIVE_DEFINITIONS.find((item) => item.id === directiveId);
+  return definition ? cloneDirectiveDefinition(definition) : null;
 }
 
 export function getCommissionStandingByReputation(reputation = 0) {
@@ -1590,6 +1681,49 @@ export function getCommissionCaseFileProgress(progressMap = {}, options = {}) {
       offeredIds,
     ),
   }));
+}
+
+export function getCommissionDirectiveAvailability(definition = {}, standing = null) {
+  return getCommissionSupplyAvailability(definition, standing);
+}
+
+export function rollCommissionDirectiveDefinitions({
+  standing = null,
+  excludeIds = [],
+  preferredTags = [],
+  offerSize = 3,
+} = {}) {
+  const exclude = new Set(excludeIds ?? []);
+  const preferred = new Set(preferredTags ?? []);
+  const available = COMMISSION_DIRECTIVE_DEFINITIONS
+    .filter((definition) => getCommissionDirectiveAvailability(definition, standing).unlocked)
+    .filter((definition) => !exclude.has(definition.id));
+  const shuffled = shuffleDefinitions(available);
+  const favored = shuffled.filter((definition) => (definition.preferredTags ?? []).some((tag) => preferred.has(tag)));
+  const others = shuffled.filter((definition) => !(definition.preferredTags ?? []).some((tag) => preferred.has(tag)));
+  const ordered = [...favored, ...others];
+  return ordered.slice(0, Math.max(offerSize, 0)).map((definition) => cloneDirectiveDefinition(definition));
+}
+
+export function calculateCommissionDirectiveProgressGain(directiveDefinition = {}, commissionDefinition = {}, options = {}) {
+  const directiveTags = new Set(directiveDefinition.preferredTags ?? []);
+  const commissionTags = [...new Set(commissionDefinition.tags ?? [])];
+  const matchedTagCount = commissionTags.filter((tag) => directiveTags.has(tag)).length;
+  if (!matchedTagCount) {
+    return 0;
+  }
+
+  let gain = 1;
+  if ((options.sourceType ?? 'board') === 'special') {
+    gain += 1;
+  }
+  if ((options.sourceType ?? 'board') === 'case') {
+    gain += 1;
+  }
+  if ((options.evaluation?.tier?.id ?? 'failed') === 'perfect') {
+    gain += 1;
+  }
+  return Math.max(gain, 1);
 }
 
 export function getCommissionAffairsUpgradeEffects(purchasedIds = []) {

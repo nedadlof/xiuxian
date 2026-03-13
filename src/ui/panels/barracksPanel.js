@@ -1,5 +1,5 @@
-import { getWarSnapshot } from '../../systems/warSystem.js?v=20260310-11';
-import { renderWarRecruitmentSection, renderWarSynergyCard } from '../warRecruitView.js';
+import { getWarSnapshot } from '../../systems/warSystem.js?v=20260312-warehouse';
+import { renderCounterAdviceCard, renderTacticalPlanCard, renderWarRecruitmentSection, renderWarSynergyCard } from '../warRecruitView.js';
 
 export function barracksPanel(state, registries, deps = {}) {
   const {
@@ -26,6 +26,8 @@ export function barracksPanel(state, registries, deps = {}) {
           <div class="card"><div class="muted">\u5b88\u52bf\u8bc4\u4f30</div><strong>${formatNumber(war.army.defensePower)}</strong></div>
         </div>
         ${renderWarSynergyCard(war.army.synergies, tooltipAttr)}
+        ${renderCounterAdviceCard(war.counterAdvice, tooltipAttr)}
+        ${renderTacticalPlanCard(war.tacticalRecommendation, tooltipAttr)}
         <div class="war-row-grid">
           ${(war.rowSummary ?? []).map((row) => `
             <div class="card" ${tooltipAttr([

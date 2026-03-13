@@ -4,11 +4,12 @@ import { createDefinitionRegistry } from './core/registry.js';
 import { createSaveManager } from './core/save.js';
 import { createBaseState, createStore, normalizeState } from './core/store.js';
 import { registerAllDefinitions } from './data/index.js';
+import { createWarehouseSystem } from './systems/warehouseSystem.js';
 import { createEconomySystem } from './systems/economySystem.js';
 import { createScriptureSystem } from './systems/scriptureSystem.js';
 import { createDisciplesBeastsSystem } from './systems/disciplesBeastsSystem.js';
 import { createTradeSystem } from './systems/tradeSystem.js';
-import { createWarSystem } from './systems/warSystem.js?v=20260310-11';
+import { createWarSystem } from './systems/warSystem.js?v=20260312-warehouse';
 import {
   createCommissionSystem,
   summarizeCommissionOfflineProgress,
@@ -38,6 +39,7 @@ export function createGameApp() {
   let sessionSummary = null;
 
   registerAllDefinitions(registries);
+  engine.registerSystem(createWarehouseSystem());
   engine.registerSystem(createEconomySystem());
   engine.registerSystem(createScriptureSystem());
   engine.registerSystem(createTradeSystem());

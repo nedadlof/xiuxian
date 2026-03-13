@@ -1,5 +1,7 @@
 import { getDiscipleEffectMultiplier } from '../../data/discipleTraining.js';
+import { getBeastBondEffects, getBeastBondSnapshot } from '../../data/beastBonds.js';
 import { getExpeditionBondEffects, getExpeditionBondSnapshot } from '../../data/expeditionBonds.js';
+import { listBattlePreparationDefinitions } from '../../data/battlePreparations.js';
 
 export function collectUnlockedEffects(state, registries) {
   const techEffects = state.scripture.unlockedNodes.flatMap((id) => registries.techNodes.get(id)?.effects ?? []);
@@ -53,7 +55,52 @@ export function collectUnlockedEffects(state, registries) {
   const expeditionBondSnapshot = getExpeditionBondSnapshot(expeditionMembers);
   const teamBondEffects = getExpeditionBondEffects(expeditionMembers);
 
-  const beastEffects = state.beasts.activeIds.flatMap((id) => registries.beasts.get(id)?.modifiers ?? []);
+  const beastEffects = state.beasts.activeIds.flatMap((id) => {
+    const beast = registries.beasts.get(id);
+    if (!beast) {
+      return [];
+    }
+    const awakeningLevel = state.beasts.awakeningLevels?.[id] ?? 0;
+    const bondLevel = state.beasts.bondLevels?.[id] ?? 0;
+    const multiplier = 1 + awakeningLevel * 0.18 + bondLevel * 0.05;
+    return (beast.modifiers ?? []).map((effect) => ({
+      ...effect,
+      sourceId: id,
+      sourceType: 'beast',
+      awakeningLevel,
+      bondLevel,
+      value: typeof effect.value === 'number' ? effect.value * multiplier : effect.value,
+    }));
+  });
+  const activeBeastRoster = state.beasts.activeIds
+    .map((id) => {
+      const beast = registries.beasts.get(id);
+      if (!beast) {
+        return null;
+      }
+      return {
+        ...beast,
+        awakeningLevel: state.beasts.awakeningLevels?.[id] ?? 0,
+        bondLevel: state.beasts.bondLevels?.[id] ?? 0,
+      };
+    })
+    .filter(Boolean);
+  const beastBondSnapshot = getBeastBondSnapshot(activeBeastRoster);
+  const beastBondEffects = getBeastBondEffects(activeBeastRoster);
+
+  const preparationEffects = listBattlePreparationDefinitions().flatMap((definition) => {
+    const level = state.preparations?.levels?.[definition.id] ?? 0;
+    if (level <= 0) {
+      return [];
+    }
+    return (definition.effects ?? []).map((effect) => ({
+      ...effect,
+      sourceId: definition.id,
+      sourceType: 'preparation',
+      level,
+      value: typeof effect.value === 'number' ? effect.value * level : effect.value,
+    }));
+  });
 
   return {
     techEffects,
@@ -62,7 +109,18 @@ export function collectUnlockedEffects(state, registries) {
     teamBondEffects,
     expeditionBondSnapshot,
     beastEffects,
-    all: [...techEffects, ...discipleEffects, ...expeditionEffects, ...teamBondEffects, ...beastEffects],
+    beastBondSnapshot,
+    beastBondEffects,
+    preparationEffects,
+    all: [
+      ...techEffects,
+      ...discipleEffects,
+      ...expeditionEffects,
+      ...teamBondEffects,
+      ...beastEffects,
+      ...beastBondEffects,
+      ...preparationEffects,
+    ],
   };
 }
 

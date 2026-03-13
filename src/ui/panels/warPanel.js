@@ -1,23 +1,5 @@
-import { getWarSnapshot } from '../../systems/warSystem.js?v=20260310-11';
-import {
-  WAR_REPLAY_SPEED_OPTIONS,
-  getWarBattleModeLabel,
-  getWarCasualtyTierLabel,
-  getWarEndingReasonLabel,
-  getWarLootOutcomeLabel,
-  getWarReplayProgressPercent,
-  getWarReplaySpeedLabel,
-  getWarReportFilterOptions,
-  getWarReportOutcomeLabel,
-  getWarReportSortOptions,
-} from '../warReportUi.js';
-import { renderWarReportHistorySection } from '../warReportView.js';
-import { renderWarReplaySection } from '../warReplayView.js';
-import { renderWarStageProgressionSection } from '../warPageView.js?v=20260310-11';
-import { renderActiveBattlePanel } from '../warBattlePanel.js?v=20260310-9';
-import { createWarActionUi } from '../warActionUi.js?v=20260310-9';
-import { renderWarAutoPreferencesCard } from '../warAutoPreferencesView.js';
-import { buildWarPanelViewModel } from '../warPanelPresenter.js';
+import { getWarSnapshot } from '../../systems/warSystem.js?v=20260312-war-simple';
+import { getWarReportOutcomeLabel, getWarEndingReasonLabel } from '../warReportUi.js';
 import {
   getAutoBattleStrategyOptions,
   getAutoBattleStrategyMeta,
@@ -25,8 +7,228 @@ import {
   getAutoBattleSpeedMeta,
 } from '../warBattleUi.js';
 
-function rewardLine(label, reward, formatCostSummary) {
-  return `<div class="muted">${label}：${formatCostSummary(reward)}</div>`;
+function rewardLine(label, reward = {}, formatCostSummary) {
+  const summary = formatCostSummary(reward);
+  return summary === '无' ? '' : `<div class="muted">${label}：${summary}</div>`;
+}
+
+function renderStageCard(stage, deps = {}) {
+  const {
+    tooltipAttr,
+    formatNumber,
+    formatCostSummary,
+    getEncounterTypeLabel,
+  } = deps;
+  const linkedRewardLine = rewardLine('联动掉落', stage.rewardPreview?.linkedReward ?? {}, formatCostSummary);
+
+  return `
+    <div class="card" ${tooltipAttr([
+      stage.description,
+      `敌方战力：${formatNumber(stage.enemyPower)}`,
+      `基础奖励：${formatCostSummary(stage.rewardPreview?.baseReward ?? stage.reward)}`,
+      `联动掉落：${formatCostSummary(stage.rewardPreview?.linkedReward ?? {})}`,
+      stage.unlocked ? '状态：可挑战' : `解锁条件：${stage.lockReasons?.join(' · ') ?? '未满足'}`,
+    ])}>
+      <div class="card-title">
+        <strong>${stage.name}</strong>
+        <span class="tag">${stage.current ? '当前目标' : getEncounterTypeLabel(stage.encounterType)}</span>
+      </div>
+      <div class="muted">${stage.world} · ${stage.terrain} · 敌方战力 ${formatNumber(stage.enemyPower)}</div>
+      ${rewardLine('基础奖励', stage.rewardPreview?.baseReward ?? stage.reward, formatCostSummary)}
+      ${rewardLine('固定掉落', stage.rewardPreview?.guaranteedLoot ?? {}, formatCostSummary)}
+      ${rewardLine('首通奖励', stage.rewardPreview?.firstClearBonus ?? {}, formatCostSummary)}
+      ${linkedRewardLine}
+      <div class="detail-list">
+        <span>${stage.cleared ? '已通关，可继续刷取资源' : '首通会额外掉落材料'}</span>
+        <span>${(stage.mechanics?.length ?? 0) > 0 ? `机制 ${stage.mechanics.length} 项` : '无特殊机制'}</span>
+      </div>
+      <div class="inline-actions">
+        <button class="${stage.current ? 'secondary' : 'ghost'}" data-action="select-stage" data-id="${stage.id}">${stage.current ? '当前目标' : '设为目标'}</button>
+        <button ${stage.unlocked ? '' : 'disabled'} data-action="quick-challenge-stage" data-id="${stage.id}">${stage.cleared ? '再次扫荡' : '一键挑战'}</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderCurrentBattleCard(activeBattle, deps = {}) {
+  const {
+    formatNumber,
+  } = deps;
+  const playerHpPercent = activeBattle.playerTeam?.maxHp
+    ? Math.max(4, Math.round((activeBattle.playerTeam.hp / activeBattle.playerTeam.maxHp) * 100))
+    : 0;
+  const enemyHpPercent = activeBattle.enemyTeam?.maxHp
+    ? Math.max(4, Math.round((activeBattle.enemyTeam.hp / activeBattle.enemyTeam.maxHp) * 100))
+    : 0;
+
+  return `
+    <section class="panel">
+      <div class="panel-title"><h3>当前战况</h3><span class="tag">${activeBattle.autoMode ? '自动中' : '推演中'}</span></div>
+      <div class="mini-grid">
+        <div class="card"><div class="muted">关卡</div><strong>${activeBattle.stageName}</strong></div>
+        <div class="card"><div class="muted">回合</div><strong>${activeBattle.round}/${activeBattle.battleRoundLimit}</strong></div>
+        <div class="card"><div class="muted">我方生命</div><strong>${formatNumber(activeBattle.playerTeam.hp)}/${formatNumber(activeBattle.playerTeam.maxHp)}</strong></div>
+        <div class="card"><div class="muted">敌方生命</div><strong>${formatNumber(activeBattle.enemyTeam.hp)}/${formatNumber(activeBattle.enemyTeam.maxHp)}</strong></div>
+      </div>
+      <div class="war-hp-grid">
+        <div>
+          <div class="muted">我方血线</div>
+          <div class="war-progress-track"><span class="war-progress-fill ally" style="width:${playerHpPercent}%"></span></div>
+        </div>
+        <div>
+          <div class="muted">敌方血线</div>
+          <div class="war-progress-track"><span class="war-progress-fill enemy" style="width:${enemyHpPercent}%"></span></div>
+        </div>
+      </div>
+      <div class="muted">战斗已简化为自动推演主流程。若推演未立即结算，可以继续点击“一键推进”快速结束本场。</div>
+      <div class="inline-actions">
+        <button data-action="quick-challenge-stage" data-id="${activeBattle.stageId}">一键推进</button>
+        <button class="ghost" data-action="battle-retreat">撤退</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderLatestReportCard(report, deps = {}) {
+  const {
+    tooltipAttr,
+    formatCostSummary,
+  } = deps;
+  if (!report) {
+    return `
+      <section class="panel">
+        <div class="panel-title"><h3>最近战果</h3><span class="tag">暂无</span></div>
+        <div class="card"><div class="muted">当前还没有战斗结算记录，先选一关一键挑战即可。</div></div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="panel">
+      <div class="panel-title"><h3>最近战果</h3><span class="tag">${getWarReportOutcomeLabel(report)}</span></div>
+      <div class="card" ${tooltipAttr([
+        `结局：${getWarReportOutcomeLabel(report)}`,
+        `结束方式：${getWarEndingReasonLabel(report)}`,
+        `总奖励：${formatCostSummary(report.reward)}`,
+        `弟子/灵兽/产业联动：${formatCostSummary(report.rewardBreakdown?.linkedReward ?? {})}`,
+      ])}>
+        <div class="card-title"><strong>${report.stageName}</strong><span class="tag">${getWarEndingReasonLabel(report)}</span></div>
+        <div class="muted">总奖励：${formatCostSummary(report.reward)}</div>
+        ${rewardLine('基础奖励', report.rewardBreakdown?.baseReward ?? {}, formatCostSummary)}
+        ${rewardLine('随机掉落', report.rewardBreakdown?.randomLoot ?? {}, formatCostSummary)}
+        ${rewardLine('联动掉落', report.rewardBreakdown?.linkedReward ?? {}, formatCostSummary)}
+        <div class="muted">出征弟子：${report.expeditionSupport?.memberNames?.join(' · ') || '未派出弟子'}</div>
+        <div class="muted">灵兽/羁绊联动：灵兽 ${report.expeditionSupport?.bondCount ?? 0} 条羁绊 · 总共鸣 ${report.expeditionSupport?.totalResonance ?? 0}</div>
+      </div>
+    </section>
+  `;
+}
+
+function renderRewardFocusCard(currentStage, deps = {}) {
+  const {
+    formatCostSummary,
+  } = deps;
+  if (!currentStage) {
+    return '';
+  }
+
+  const linked = currentStage.rewardPreview?.linkedReward ?? {};
+  const focusParts = [];
+  if ((linked.seekImmortalToken ?? 0) > 0 || (linked.tianmingSeal ?? 0) > 0 || (linked.discipleShard ?? 0) > 0) {
+    focusParts.push('弟子招募线');
+  }
+  if ((linked.beastShard ?? 0) > 0) {
+    focusParts.push('灵兽养成线');
+  }
+  if ((linked.pills ?? 0) > 0 || (linked.herb ?? 0) > 0) {
+    focusParts.push('炼丹线');
+  }
+  if ((linked.iron ?? 0) > 0 || (linked.talisman ?? 0) > 0) {
+    focusParts.push('锻造符阵线');
+  }
+
+  return `
+    <section class="panel">
+      <div class="panel-title"><h3>本关联动收益</h3><span class="tag">${focusParts.join(' / ') || '基础修炼资源'}</span></div>
+      <div class="card">
+        <div class="muted">当前目标关卡会根据弟子出征、灵兽激活和炼丹锻造产业状态补出额外掉落。</div>
+        <div class="muted">当前联动掉落：${formatCostSummary(linked)}</div>
+        <div class="muted">基础奖励：${formatCostSummary(currentStage.rewardPreview?.baseReward ?? currentStage.reward)}</div>
+      </div>
+    </section>
+  `;
+}
+
+function renderBattleAdviceCard(advice = [], deps = {}) {
+  const { tooltipAttr } = deps;
+  if (!(advice?.length > 0)) {
+    return `
+      <section class="panel">
+        <div class="panel-title"><h3>战前建议</h3><span class="tag">已就绪</span></div>
+        <div class="card"><div class="muted">当前阵容与目标关卡匹配度较高，可以直接一键挑战，优先把战利滚起来。</div></div>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="panel">
+      <div class="panel-title"><h3>战前建议</h3><span class="tag">${advice.length} 条</span></div>
+      <div class="log-list">
+        ${advice.map((item) => `
+          <div class="log-item" ${tooltipAttr([item.summary, `建议方向：${item.prepName}`, `推荐去向：${item.targetTab}`])}>
+            <div>
+              <strong>${item.title}</strong>
+              <div class="muted">${item.summary}</div>
+            </div>
+            <button class="ghost" data-action="switch-tab" data-tab="${item.targetTab}">${item.actionLabel}</button>
+          </div>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderCounterFocusCard(counterAdvice = []) {
+  if (!(counterAdvice?.length > 0)) {
+    return '';
+  }
+
+  return `
+    <section class="panel">
+      <div class="panel-title"><h3>兵种克制</h3><span class="tag">当前关卡</span></div>
+      <div class="card">
+        <div class="muted">优先考虑这些兵种来针对当前目标关卡的敌方构成。</div>
+        <div class="detail-list">
+          ${counterAdvice.map((item) => `<span>${item.unitName}${item.count > 0 ? ` x${item.count}` : ''} · 克 ${item.counterHits.join('/') || '无'}${item.weakHits.length ? ` · 忌 ${item.weakHits.join('/')}` : ''}</span>`).join('')}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderTacticalPlanCard(recommendation, lastRecommendedPrep, deps = {}) {
+  const { formatCostSummary, getResourceLabel } = deps;
+  if (!recommendation?.formation && !(recommendation?.squad?.length > 0)) {
+    return '';
+  }
+
+  const shortageSummary = formatCostSummary?.(lastRecommendedPrep?.missingResources ?? {}) ?? '无';
+  const shortageFocus = (lastRecommendedPrep?.suggestedRewardFocus ?? []).map((resourceId) => getResourceLabel?.(resourceId) ?? resourceId).join(' / ');
+
+  return `
+    <section class="panel">
+      <div class="panel-title"><h3>推荐配队</h3><span class="tag">当前关卡</span></div>
+      <div class="card">
+        ${recommendation.formation ? `<div class="muted">推荐阵法：${recommendation.formation.name}</div>` : ''}
+        ${recommendation.formation ? `<div class="inline-actions"><button class="secondary" data-action="apply-recommended-formation" data-id="${recommendation.formation.id}">一键整备出战</button></div>` : ''}
+        <div class="detail-list">
+          ${(recommendation.squad ?? []).map((item) => `<span>${item.unitName}${item.count > 0 ? ` x${item.count}` : ''}/${item.targetCount || item.count || 0} · 克 ${item.counters.join('/') || '无'}${item.weakHits.length ? ` · 忌 ${item.weakHits.join('/')}` : ''}</span>`).join('')}
+        </div>
+        ${lastRecommendedPrep && shortageSummary !== '无' ? `<div class="muted">本次整备仍缺：${shortageSummary}</div>` : ''}
+        ${lastRecommendedPrep && shortageSummary !== '无' ? `<div class="muted">优先补：${shortageFocus || '基础军备资源'}</div>` : ''}
+      </div>
+    </section>
+  `;
 }
 
 export function warPanel(state, registries, deps = {}) {
@@ -35,97 +237,50 @@ export function warPanel(state, registries, deps = {}) {
     formatNumber,
     formatCostSummary,
     getEncounterTypeLabel,
-    getTagLabel,
-    getTransientUiFeedback,
-    uiState = {},
   } = deps;
-
-  const warActionUi = createWarActionUi({ tooltipAttr, formatNumber });
-  const viewModel = buildWarPanelViewModel(state, registries, uiState, { getWarSnapshot, getTransientUiFeedback });
-  const progressPercent = getWarReplayProgressPercent(viewModel.frame);
-  const renderRewardLine = (label, reward) => rewardLine(label, reward, formatCostSummary);
+  const war = getWarSnapshot(state, registries);
+  const currentStage = war.currentStage;
+  const latestReport = war.reports?.[0] ?? null;
+  const defaultAutoStrategy = war.autoPreferences?.strategyId ?? 'skill-first';
+  const defaultAutoSpeed = war.autoPreferences?.speedId ?? 'normal';
 
   return `
     <div class="grid">
-      ${renderWarStageProgressionSection({
-        war: viewModel.war,
-        clearedStageCount: state.war.clearedStages.length,
-        battleLocked: viewModel.battleLocked,
-        tooltipAttr,
-        formatNumber,
-        formatCostSummary,
-        rewardLine: renderRewardLine,
-        getEncounterTypeLabel,
-      })}
-      ${renderWarAutoPreferencesCard({
-        autoPreferenceFeedback: viewModel.autoPreferenceFeedback,
-        defaultAutoStrategy: viewModel.defaultAutoStrategy,
-        defaultAutoSpeed: viewModel.defaultAutoSpeed,
-        battleLocked: viewModel.battleLocked,
-        tooltipAttr,
-        getAutoBattleStrategyMeta,
-        getAutoBattleSpeedMeta,
-        getAutoBattleStrategyOptions,
-        getAutoBattleSpeedOptions,
-      })}
-      ${viewModel.activeBattle ? renderActiveBattlePanel(viewModel.activeBattle, uiState, {
-        tooltipAttr,
-        formatNumber,
-        getTagLabel,
-        getEncounterTypeLabel,
-        renderWarActionCards: warActionUi.renderWarActionCards,
-        getTransientUiFeedback,
-      }) : ''}
-      ${renderWarReplaySection({
-        latestReport: viewModel.latestReport,
-        selectedReport: viewModel.selectedReport,
-        battleResultFeedback: viewModel.battleResultFeedback,
-        frame: viewModel.frame,
-        rounds: viewModel.rounds,
-        currentRound: viewModel.currentRound,
-        currentAction: viewModel.currentAction,
-        replay: viewModel.replay,
-        replaySpeed: viewModel.replaySpeed,
-        progressPercent,
-        allyHpPercent: viewModel.allyHpPercent,
-        enemyHpPercent: viewModel.enemyHpPercent,
-        tooltipAttr,
-        formatNumber,
-        formatCostSummary,
-        getWarReplaySpeedLabel,
-        getWarReportOutcomeLabel,
-        getWarEndingReasonLabel,
-        getWarCasualtyTierLabel,
-        getWarLootOutcomeLabel,
-        getWarBattleModeLabel,
-        getWarActionTypeLabel: warActionUi.getWarActionTypeLabel,
-        buildWarActionTooltip: warActionUi.buildWarActionTooltip,
-        buildWarActionTags: warActionUi.buildWarActionTags,
-        renderWarActionCards: warActionUi.renderWarActionCards,
-        WAR_REPLAY_SPEED_OPTIONS,
-      })}
-      ${renderWarReportHistorySection({
-        war: viewModel.war,
-        reportFilter: viewModel.reportFilter,
-        reportSort: viewModel.reportSort,
-        sortedReports: viewModel.sortedReports,
-        pagedReports: viewModel.pagedReports,
-        reportPage: viewModel.reportPage,
-        reportPageCount: viewModel.reportPageCount,
-        selectedReport: viewModel.selectedReport,
-        frame: viewModel.frame,
-        tooltipAttr,
-        formatCostSummary,
-        rewardLine: renderRewardLine,
-        getEncounterTypeLabel,
-        getWarReportFilterOptions,
-        getWarReportSortOptions,
-        getWarReportOutcomeLabel,
-        getWarEndingReasonLabel,
-        getWarCasualtyTierLabel,
-        getWarLootOutcomeLabel,
-        getWarBattleModeLabel,
-      })}
+      <section class="panel">
+        <div class="panel-title"><h3>战斗总览</h3><span class="tag">简化推演</span></div>
+        <div class="mini-grid">
+          <div class="card"><div class="muted">当前目标</div><strong>${currentStage?.name ?? '未选择'}</strong></div>
+          <div class="card"><div class="muted">已通关</div><strong>${state.war.clearedStages.length} 关</strong></div>
+          <div class="card"><div class="muted">默认策略</div><strong>${getAutoBattleStrategyMeta(defaultAutoStrategy).label}</strong></div>
+          <div class="card"><div class="muted">推演速度</div><strong>${getAutoBattleSpeedMeta(defaultAutoSpeed).label}</strong></div>
+        </div>
+        <div class="inline-actions">
+          ${getAutoBattleStrategyOptions().map((strategy) => `<button class="${defaultAutoStrategy === strategy.id ? 'secondary' : 'ghost'}" data-action="battle-auto-strategy" data-id="${strategy.id}">${strategy.label}</button>`).join('')}
+        </div>
+        <div class="inline-actions">
+          ${getAutoBattleSpeedOptions().map((speed) => `<button class="${defaultAutoSpeed === speed.id ? 'secondary' : 'ghost'}" data-action="battle-auto-speed" data-id="${speed.id}">${speed.label}</button>`).join('')}
+        </div>
+        <div class="muted">主流程已经简化为“设目标 -> 一键挑战 -> 直接看结果与掉落”。详细逐手操作不再作为主界面核心。</div>
+      </section>
+
+      ${renderRewardFocusCard(currentStage, { formatCostSummary })}
+      ${renderCounterFocusCard(war.counterAdvice)}
+      ${renderTacticalPlanCard(war.tacticalRecommendation, war.lastRecommendedPrep, { formatCostSummary, getResourceLabel: deps.getResourceLabel })}
+      ${renderBattleAdviceCard(war.battleAdvice, { tooltipAttr })}
+      ${war.activeBattle ? renderCurrentBattleCard(war.activeBattle, { formatNumber }) : ''}
+      ${renderLatestReportCard(latestReport, { tooltipAttr, formatCostSummary })}
+
+      <section class="panel">
+        <div class="panel-title"><h3>关卡列表</h3><span class="tag">${war.stages.length} 关</span></div>
+        <div class="stage-grid">
+          ${war.stages.map((stage) => renderStageCard(stage, {
+            tooltipAttr,
+            formatNumber,
+            formatCostSummary,
+            getEncounterTypeLabel,
+          })).join('')}
+        </div>
+      </section>
     </div>
   `;
 }

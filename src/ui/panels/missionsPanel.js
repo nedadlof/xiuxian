@@ -298,6 +298,65 @@ function renderAutoDispatchStateLine(autoDispatch = {}) {
   return `自动结算 ${autoDispatch.autoClaim ? '开启' : '关闭'} · 途中事件自动抉择 ${autoDispatch.autoResolveEvents ? '开启' : '关闭'}`;
 }
 
+function renderDirectiveFocusSummary(directive = {}, formatCostSummary) {
+  const parts = [];
+  if ((directive.preferredTags?.length ?? 0) > 0) {
+    parts.push(`聚焦 ${(directive.preferredTags ?? []).join(' · ')}`);
+  }
+  if ((directive.focusScoreBonus ?? 0) > 0) {
+    parts.push(`评分 +${directive.focusScoreBonus}`);
+  }
+  const rewardBonus = renderRewardSummary(directive.focusRewardBonus, formatCostSummary);
+  if (rewardBonus !== '暂无') {
+    parts.push(`加赠 ${rewardBonus}`);
+  }
+  return parts.join(' · ') || '当前无策令加成';
+}
+
+function renderDirectiveProgressSummary(directive = {}) {
+  if (directive.rewardReady) {
+    return '策令目标已达成，可以立即领取本轮执务奖赏。';
+  }
+  return `当前进度 ${directive.progress ?? 0} / ${directive.requiredProgress ?? 0}`;
+}
+
+function renderEvaluationDirectiveSummary(evaluation = {}, formatCostSummary) {
+  if (!evaluation?.directiveApplied) {
+    return '当前策令未命中本委托';
+  }
+
+  const parts = [`策令 ${evaluation.directiveName ?? '未知'}`];
+  if ((evaluation.directiveMatchedTags?.length ?? 0) > 0) {
+    parts.push(`命中 ${evaluation.directiveMatchedTags.join(' · ')}`);
+  }
+  if ((evaluation.directiveScoreBonus ?? 0) > 0) {
+    parts.push(`评分 +${evaluation.directiveScoreBonus}`);
+  }
+  const rewardBonus = renderRewardSummary(evaluation.directiveRewardBonus, formatCostSummary);
+  if (rewardBonus !== '暂无') {
+    parts.push(`加赠 ${rewardBonus}`);
+  }
+  return parts.join(' · ');
+}
+
+function renderEvaluationWarehouseSummary(evaluation = {}, formatCostSummary) {
+  const parts = [];
+  if (evaluation?.warehouseStrategyName) {
+    parts.push(`仓策 ${evaluation.warehouseStrategyName}`);
+  }
+  const rewardBonus = renderRewardSummary(evaluation?.warehouseRewardBonus, formatCostSummary);
+  if (rewardBonus !== '暂无') {
+    parts.push(`加赠 ${rewardBonus}`);
+  }
+  if ((evaluation?.warehouseReputationBonus ?? 0) > 0) {
+    parts.push(`声望 +${evaluation.warehouseReputationBonus}`);
+  }
+  if ((evaluation?.warehouseAffairsCreditBonus ?? 0) > 0) {
+    parts.push(`事务点 +${evaluation.warehouseAffairsCreditBonus}`);
+  }
+  return parts.join(' · ') || '当前仓库未提供额外加成';
+}
+
 function renderSpecialOfferCard(offer, deps = {}) {
   const {
     tooltipAttr,
@@ -315,6 +374,8 @@ function renderSpecialOfferCard(offer, deps = {}) {
       `推荐评分：${offer.recommendedScore}`,
       `定向专长：${renderAffinitySummary(offer.evaluation)}`,
       `风向加成：${renderEvaluationThemeSummary(offer.evaluation, formatCostSummary)}`,
+      `策令加成：${renderEvaluationDirectiveSummary(offer.evaluation, formatCostSummary)}`,
+      `仓策加成：${renderEvaluationWarehouseSummary(offer.evaluation, formatCostSummary)}`,
       `声望收益：${renderReputationReward(offer.reputationReward)}`,
       `事务点收益：${renderAffairsCreditReward(offer.affairsCreditReward)}`,
       `基础奖励：${renderRewardSummary(offer.reward, formatCostSummary)}`,
@@ -335,6 +396,8 @@ function renderSpecialOfferCard(offer, deps = {}) {
       <div class="muted">${offer.eventLabel ?? '限时诏令'} · ${biasTag ?? '自然出现'}</div>
       <div class="muted">专长命中：${renderAffinitySummary(offer.evaluation)}</div>
       <div class="muted">风向加成：${renderEvaluationThemeSummary(offer.evaluation, formatCostSummary)}</div>
+      <div class="muted">策令加成：${renderEvaluationDirectiveSummary(offer.evaluation, formatCostSummary)}</div>
+      <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(offer.evaluation, formatCostSummary)}</div>
       <div class="muted">${renderReputationReward(offer.reputationReward)}</div>
       <div class="muted">${renderAffairsCreditReward(offer.affairsCreditReward)}</div>
       <div class="muted">预计收益：${renderRewardSummary(offer.evaluation?.totalReward, formatCostSummary)}</div>
@@ -360,6 +423,7 @@ export function missionsPanel(state, registries, deps = {}) {
   const milestones = missions.milestones ?? [];
   const supplies = missions.supplies ?? [];
   const affairsShop = missions.affairsShop ?? [];
+  const directive = missions.directive ?? {};
   const caseFiles = missions.caseFiles ?? [];
   const autoDispatch = missions.autoDispatch ?? {};
   const preparationBoost = missions.preparationBoost ?? null;
@@ -429,6 +493,8 @@ export function missionsPanel(state, registries, deps = {}) {
               </div>
               <div class="muted">专长命中：${renderAffinitySummary(active.evaluation)}</div>
               <div class="muted">风向加成：${renderEvaluationThemeSummary(active.evaluation, formatCostSummary)}</div>
+              <div class="muted">策令加成：${renderEvaluationDirectiveSummary(active.evaluation, formatCostSummary)}</div>
+              <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(active.evaluation, formatCostSummary)}</div>
               <div class="muted">${renderReputationReward(active.reputationReward)}</div>
               <div class="muted">${renderAffairsCreditReward(active.affairsCreditReward)}</div>
               <div class="muted">预计收益：${renderRewardSummary(active.evaluation?.totalReward, formatCostSummary)}</div>
@@ -457,6 +523,50 @@ export function missionsPanel(state, registries, deps = {}) {
       ` : ''}
 
       <section class="panel">
+        <div class="panel-title"><h3>执务策令</h3><span class="tag">${directive.active ? (directive.active.rewardReady ? '可领奖' : directive.active.name) : `${directive.completedCount ?? 0} 次完成`}</span></div>
+        ${directive.active ? `
+          <div class="card" ${tooltipAttr([
+            directive.active.description,
+            `目标进度：${directive.active.progress ?? 0} / ${directive.active.requiredProgress ?? 0}`,
+            `聚焦效果：${renderDirectiveFocusSummary(directive.active, formatCostSummary)}`,
+            `完成奖励：${renderRewardSummary(directive.active.reward, formatCostSummary)}`,
+            `额外声望：${directive.active.reputationReward ?? 0}`,
+            `额外事务点：${directive.active.affairsCreditReward ?? 0}`,
+          ])}>
+            <div class="card-title"><strong>${directive.active.name}</strong><span class="tag">${directive.active.rewardReady ? '已达成' : '执行中'}</span></div>
+            <div class="muted">${directive.active.description}</div>
+            <div class="war-progress-track"><span class="war-progress-fill ally" style="width:${directive.active.progressPercent ?? 0}%"></span></div>
+            <div class="muted">${renderDirectiveProgressSummary(directive.active)}</div>
+            <div class="muted">${renderDirectiveFocusSummary(directive.active, formatCostSummary)}</div>
+            <div class="muted">完成奖励：${renderRewardSummary(directive.active.reward, formatCostSummary)} · 声望 +${directive.active.reputationReward ?? 0} · 事务点 +${directive.active.affairsCreditReward ?? 0}</div>
+            <div class="inline-actions">
+              <button ${directive.active.rewardReady ? '' : 'disabled'} data-action="claim-commission-directive">领取策令奖赏</button>
+            </div>
+          </div>
+        ` : `
+          <div class="grid">
+            ${(directive.offers ?? []).map((offer) => `
+              <div class="card" ${tooltipAttr([
+                offer.description,
+                `聚焦效果：${renderDirectiveFocusSummary(offer, formatCostSummary)}`,
+                `完成要求：匹配 ${offer.requiredProgress ?? 0} 次`,
+                `完成奖励：${renderRewardSummary(offer.reward, formatCostSummary)}`,
+                offer.unlocked ? null : `解锁阶位：${offer.requiredStanding?.name ?? '未定'}`,
+              ])}>
+                <div class="card-title"><strong>${offer.name}</strong><span class="tag">${offer.unlocked ? `需 ${offer.requiredProgress ?? 0} 次` : `需 ${offer.requiredStanding?.name ?? '更高阶位'}`}</span></div>
+                <div class="muted">${offer.description}</div>
+                <div class="muted">${renderDirectiveFocusSummary(offer, formatCostSummary)}</div>
+                <div class="muted">完成奖励：${renderRewardSummary(offer.reward, formatCostSummary)} · 声望 +${offer.reputationReward ?? 0} · 事务点 +${offer.affairsCreditReward ?? 0}</div>
+                <div class="inline-actions">
+                  <button ${offer.canSelect ? '' : 'disabled'} data-action="select-commission-directive" data-id="${offer.id}">${offer.unlocked ? '启用策令' : '尚未解锁'}</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `}
+      </section>
+
+      <section class="panel">
         <div class="panel-title"><h3>卷宗悬案</h3><span class="tag">${readyCaseCount ? `${readyCaseCount} 宗待破` : '持续搜证中'}</span></div>
         <div class="grid">
           ${caseFiles.map((caseFile) => `
@@ -482,6 +592,7 @@ export function missionsPanel(state, registries, deps = {}) {
                 <span>评级 ${caseFile.evaluation?.tier?.label ?? '待定'}</span>
               </div>
               <div class="muted">${renderCaseFileProgressSummary(caseFile)}</div>
+              <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(caseFile.evaluation, formatCostSummary)}</div>
               <div class="muted">预计收益：${renderRewardSummary(caseFile.evaluation?.totalReward, formatCostSummary)}</div>
               <div class="muted">${renderReputationReward(caseFile.reputationReward)} · ${renderAffairsCreditReward(caseFile.affairsCreditReward)}</div>
               <div class="inline-actions">
@@ -623,6 +734,8 @@ export function missionsPanel(state, registries, deps = {}) {
                 `预计评级：${mission.evaluation?.tier?.label ?? '待定'}`,
                 `定向专长：${renderAffinitySummary(mission.evaluation)}`,
                 `风向加成：${renderEvaluationThemeSummary(mission.evaluation, formatCostSummary)}`,
+                `策令加成：${renderEvaluationDirectiveSummary(mission.evaluation, formatCostSummary)}`,
+                `仓策加成：${renderEvaluationWarehouseSummary(mission.evaluation, formatCostSummary)}`,
                 `声望收益：${renderReputationReward(mission.reputationReward)}`,
                 `事务点收益：${renderAffairsCreditReward(mission.affairsCreditReward)}`,
                 `基础奖励：${renderRewardSummary(mission.reward, formatCostSummary)}`,
@@ -641,6 +754,8 @@ export function missionsPanel(state, registries, deps = {}) {
                 </div>
                 <div class="muted">专长命中：${renderAffinitySummary(mission.evaluation)}</div>
                 <div class="muted">风向加成：${renderEvaluationThemeSummary(mission.evaluation, formatCostSummary)}</div>
+                <div class="muted">策令加成：${renderEvaluationDirectiveSummary(mission.evaluation, formatCostSummary)}</div>
+                <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(mission.evaluation, formatCostSummary)}</div>
                 <div class="muted">${renderReputationReward(mission.reputationReward)}</div>
                 <div class="muted">${renderAffairsCreditReward(mission.affairsCreditReward)}</div>
                 <div class="muted">预计收益：${renderRewardSummary(mission.evaluation?.totalReward, formatCostSummary)}</div>
@@ -684,6 +799,7 @@ export function missionsPanel(state, registries, deps = {}) {
               `队伍成员：${mission.teamSnapshot?.members?.map((member) => member.name).join(' · ') || '未记录'}`,
               `定向专长：${renderAffinitySummary(mission.evaluation)}`,
               `风向加成：${renderEvaluationThemeSummary(mission.evaluation, formatCostSummary)}`,
+              `仓策加成：${renderEvaluationWarehouseSummary(mission.evaluation, formatCostSummary)}`,
               `声望收益：${renderReputationReward(mission.reputationReward)}`,
               `事务点收益：${renderAffairsCreditReward(mission.affairsCreditReward)}`,
               `奖励：${renderRewardSummary(mission.evaluation?.totalReward, formatCostSummary)}`,

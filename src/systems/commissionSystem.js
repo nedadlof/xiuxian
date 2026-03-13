@@ -2,6 +2,7 @@ import {
   applyCommissionEventOutcome,
   calculateCommissionAffairsCreditReward,
   calculateCommissionCaseFileClueGain,
+  calculateCommissionDirectiveProgressGain,
   calculateCommissionReputationReward,
   evaluateCommissionTeam,
   getCommissionAffairsShopAvailability,
@@ -11,6 +12,8 @@ import {
   getCommissionCaseFileDefinition,
   getCommissionCaseFileProgress,
   getCommissionDefinition,
+  getCommissionDirectiveAvailability,
+  getCommissionDirectiveDefinition,
   getCommissionEventDefinition,
   getCommissionEventTriggerProgress,
   getCommissionMilestoneDefinition,
@@ -33,13 +36,16 @@ import {
   listCommissionAffairsShopDefinitions,
   listCommissionCaseFileDefinitions,
   listCommissionDefinitions,
+  listCommissionDirectiveDefinitions,
   listCommissionSupplyDefinitions,
   pickCommissionEventDefinition,
   rollCommissionBoard,
+  rollCommissionDirectiveDefinitions,
   rollCommissionTheme,
   rollSpecialCommissionDefinition,
 } from '../data/commissions.js';
 import { getExpeditionBondSnapshot } from '../data/expeditionBonds.js';
+import { getWarehouseEffects } from '../data/warehouse.js';
 import { appendLog } from './shared/logs.js';
 
 const COMMISSION_AUTO_PRIORITY_DEFINITIONS = Object.freeze([
@@ -119,6 +125,11 @@ function ensureCommissionState(state) {
   state.commissions.autoDispatch.priorityMode ??= 'case-first';
   state.commissions.autoDispatch.autoResolveEvents ??= true;
   state.commissions.autoDispatch.autoClaim ??= true;
+  state.commissions.directiveOfferIds ??= [];
+  state.commissions.activeDirectiveId ??= null;
+  state.commissions.activeDirectiveProgress ??= 0;
+  state.commissions.directiveRewardReady ??= false;
+  state.commissions.completedDirectiveCount ??= 0;
 }
 
 function canAffordCost(state, cost = {}) {
@@ -131,8 +142,20 @@ function payCost(state, cost = {}) {
   }
 }
 
+function scaleRewardMap(reward = {}, multiplier = 1) {
+  return Object.fromEntries(
+    Object.entries(reward ?? {})
+      .map(([resourceId, amount]) => [resourceId, Math.max(Math.round((Number(amount) || 0) * multiplier), 0)])
+      .filter(([, amount]) => amount > 0),
+  );
+}
+
 function getCurrentCommissionTheme(state) {
   return getCommissionThemeDefinition(state.commissions?.currentThemeId ?? null);
+}
+
+function getCurrentCommissionDirective(state) {
+  return getCommissionDirectiveDefinition(state.commissions?.activeDirectiveId ?? null);
 }
 
 function getCommissionStanding(state) {
@@ -141,6 +164,16 @@ function getCommissionStanding(state) {
 
 function getCommissionAffairsEffects(state) {
   return getCommissionAffairsUpgradeEffects(state.commissions?.purchasedShopItemIds ?? []);
+}
+
+function getWarehouseCommissionBonusState(state) {
+  const effects = getWarehouseEffects(state);
+  return {
+    rewardMultiplier: Math.max(effects.commissionRewardMultiplier ?? 0, 0),
+    reputationBonus: Math.max(effects.commissionReputationFlatBonus ?? 0, 0),
+    affairsCreditBonus: Math.max(effects.commissionAffairsFlatBonus ?? 0, 0),
+    strategyName: effects.activeStrategy?.name ?? null,
+  };
 }
 
 function getCommissionSourceDefinition(sourceType = 'board', definitionId = null) {
@@ -165,6 +198,105 @@ function getCommissionSourceLabel(sourceType = 'board') {
     return '卷宗悬案';
   }
   return '委托';
+}
+
+function getCommissionDirectiveFocusState(directive = null, definition = {}) {
+  if (!directive) {
+    return {
+      applied: false,
+      matchedTags: [],
+      scoreBonus: 0,
+      rewardBonus: {},
+      reputationBonus: 0,
+      affairsCreditBonus: 0,
+    };
+  }
+
+  const directiveTags = new Set(directive.preferredTags ?? []);
+  const matchedTags = [...new Set((definition.tags ?? []).filter((tag) => directiveTags.has(tag)))];
+  if (!matchedTags.length) {
+    return {
+      applied: false,
+      matchedTags: [],
+      scoreBonus: 0,
+      rewardBonus: {},
+      reputationBonus: 0,
+      affairsCreditBonus: 0,
+    };
+  }
+
+  return {
+    applied: true,
+    matchedTags,
+    scoreBonus: Math.max(Number(directive.focusScoreBonus) || 0, 0),
+    rewardBonus: { ...(directive.focusRewardBonus ?? {}) },
+    reputationBonus: Math.max(Number(directive.reputationReward) || 0, 0),
+    affairsCreditBonus: Math.max(Number(directive.affairsCreditReward) || 0, 0),
+  };
+}
+
+function applyDirectiveFocusToEvaluation(definition = {}, evaluation = {}, directive = null) {
+  const focus = getCommissionDirectiveFocusState(directive, definition);
+  if (!focus.applied) {
+    return {
+      ...evaluation,
+      directiveApplied: false,
+      directiveName: null,
+      directiveMatchedTags: [],
+      directiveScoreBonus: 0,
+      directiveRewardBonus: {},
+      directiveReputationBonus: 0,
+      directiveAffairsCreditBonus: 0,
+    };
+  }
+
+  const focused = applyCommissionEventOutcome(definition, evaluation, {
+    effect: {
+      scoreBonus: focus.scoreBonus,
+      rewardBonus: focus.rewardBonus,
+    },
+  });
+
+  return {
+    ...focused,
+    directiveApplied: true,
+    directiveName: directive?.name ?? null,
+    directiveMatchedTags: focus.matchedTags,
+    directiveScoreBonus: focus.scoreBonus,
+    directiveRewardBonus: { ...focus.rewardBonus },
+    directiveReputationBonus: focus.reputationBonus,
+    directiveAffairsCreditBonus: focus.affairsCreditBonus,
+  };
+}
+
+function applyWarehouseBonusToEvaluation(definition = {}, evaluation = {}, state = {}) {
+  const warehouse = getWarehouseCommissionBonusState(state);
+  if (!warehouse.rewardMultiplier) {
+    return {
+      ...evaluation,
+      warehouseApplied: false,
+      warehouseStrategyName: warehouse.strategyName,
+      warehouseRewardBonus: {},
+      warehouseReputationBonus: warehouse.reputationBonus,
+      warehouseAffairsCreditBonus: warehouse.affairsCreditBonus,
+    };
+  }
+
+  const rewardBonus = scaleRewardMap(evaluation.totalReward ?? {}, warehouse.rewardMultiplier);
+  const boosted = applyCommissionEventOutcome(definition, evaluation, {
+    effect: {
+      rewardBonus,
+    },
+  });
+
+  return {
+    ...boosted,
+    warehouseApplied: true,
+    warehouseStrategyName: warehouse.strategyName,
+    warehouseRewardBonus: rewardBonus,
+    warehouseReputationBonus: warehouse.reputationBonus,
+    warehouseAffairsCreditBonus: warehouse.affairsCreditBonus,
+  };
 }
 
 function listCommissionAutoPriorityDefinitions() {
@@ -345,6 +477,31 @@ function refreshCommissionCaseFileOffers(state, now = Date.now()) {
   return state.commissions.caseFileOffers;
 }
 
+function refreshCommissionDirectiveOffers(state, now = Date.now(), { force = false } = {}) {
+  ensureCommissionState(state);
+  if (state.commissions.activeDirectiveId && !force) {
+    return state.commissions.directiveOfferIds ?? [];
+  }
+  if ((state.commissions.directiveOfferIds?.length ?? 0) > 0 && !force) {
+    return state.commissions.directiveOfferIds;
+  }
+
+  const standing = getCommissionStanding(state);
+  const currentTheme = ensureCommissionTheme(state, now);
+  const preferredTags = [...new Set([
+    ...(currentTheme?.preferredTags ?? []),
+    ...(currentTheme?.specialPreferredTags ?? []),
+  ])];
+  const nextOffers = rollCommissionDirectiveDefinitions({
+    standing,
+    preferredTags,
+    offerSize: 3,
+  });
+
+  state.commissions.directiveOfferIds = nextOffers.map((definition) => definition.id);
+  return state.commissions.directiveOfferIds;
+}
+
 function buildExpeditionTeamSnapshot(state, registries) {
   const orderedIds = [
     state.disciples?.expeditionTeam?.leaderId ?? null,
@@ -454,18 +611,38 @@ function buildHistoryEntry(record, extra = {}) {
 }
 
 function getCommissionReputationReward(definition, evaluation, state, sourceType = 'board') {
-  return calculateCommissionReputationReward(definition, evaluation, {
+  const directive = getCurrentCommissionDirective(state);
+  const focus = getCommissionDirectiveFocusState(directive, definition);
+  const warehouse = getWarehouseCommissionBonusState(state);
+  const directiveBonus = evaluation?.directiveReputationBonus != null
+    ? Math.max(Number(evaluation.directiveReputationBonus) || 0, 0)
+    : (focus.applied ? focus.reputationBonus : 0);
+  const warehouseBonus = evaluation?.warehouseReputationBonus != null
+    ? Math.max(Number(evaluation.warehouseReputationBonus) || 0, 0)
+    : warehouse.reputationBonus;
+  const baseReward = calculateCommissionReputationReward(definition, evaluation, {
     sourceType,
     standing: getCommissionStanding(state),
     reputation: state.commissions?.reputation ?? 0,
   });
+  return baseReward + directiveBonus + Math.max(warehouseBonus, 0);
 }
 
 function getCommissionAffairsCreditReward(definition, evaluation, state, sourceType = 'board') {
-  return calculateCommissionAffairsCreditReward(definition, evaluation, {
+  const directive = getCurrentCommissionDirective(state);
+  const focus = getCommissionDirectiveFocusState(directive, definition);
+  const warehouse = getWarehouseCommissionBonusState(state);
+  const directiveBonus = evaluation?.directiveAffairsCreditBonus != null
+    ? Math.max(Number(evaluation.directiveAffairsCreditBonus) || 0, 0)
+    : (focus.applied ? focus.affairsCreditBonus : 0);
+  const warehouseBonus = evaluation?.warehouseAffairsCreditBonus != null
+    ? Math.max(Number(evaluation.warehouseAffairsCreditBonus) || 0, 0)
+    : warehouse.affairsCreditBonus;
+  const baseReward = calculateCommissionAffairsCreditReward(definition, evaluation, {
     sourceType,
     affairsCreditBonus: getCommissionAffairsEffects(state).affairsCreditBonus ?? 0,
   });
+  return baseReward + directiveBonus + Math.max(warehouseBonus, 0);
 }
 
 function awardCommissionCaseFileProgress(state, completed, definition, now = Date.now()) {
@@ -517,6 +694,34 @@ function awardCommissionCaseFileProgress(state, completed, definition, now = Dat
   refreshCommissionCaseFileOffers(state, now);
   readyNow.forEach((name) => appendLog(state, 'missions', `卷宗线索汇齐：${name}`));
   waitingStanding.forEach((name) => appendLog(state, 'missions', `卷宗线索已齐备：${name}`));
+}
+
+function awardCommissionDirectiveProgress(state, completed, definition, now = Date.now()) {
+  const directive = getCurrentCommissionDirective(state);
+  if (!directive || state.commissions.directiveRewardReady) {
+    return;
+  }
+
+  const sourceDefinition = definition ?? getCommissionSourceDefinition(completed?.sourceType, completed?.definitionId) ?? completed;
+  if (!sourceDefinition) {
+    return;
+  }
+
+  const gain = calculateCommissionDirectiveProgressGain(directive, sourceDefinition, {
+    sourceType: completed?.sourceType ?? 'board',
+    evaluation: completed?.evaluation ?? {},
+  });
+  if (gain <= 0) {
+    return;
+  }
+
+  const requiredProgress = Math.max(Number(directive.requiredProgress) || 0, 1);
+  const nextProgress = Math.min((state.commissions.activeDirectiveProgress ?? 0) + gain, requiredProgress);
+  state.commissions.activeDirectiveProgress = nextProgress;
+  if (nextProgress >= requiredProgress) {
+    state.commissions.directiveRewardReady = true;
+    appendLog(state, 'missions', `执务策令达成：${directive.name}`);
+  }
 }
 
 function buildPreparationBoostState(definition = {}) {
@@ -744,13 +949,16 @@ function getCommissionAutoDispatchCandidateScore(candidate = {}, autoDispatch = 
     + ((candidate.affairsCreditReward ?? 0) * 220)
     + (candidate.evaluation?.totalScore ?? 0)
     + ((candidate.evaluation?.matchCount ?? 0) * 40);
+  const directiveValue = candidate.evaluation?.directiveApplied
+    ? 95000 + ((candidate.evaluation?.directiveMatchedTags?.length ?? 0) * 12000)
+    : 0;
   const duration = Math.max(candidate.durationSeconds ?? 1, 1);
   const speedValue = ((rewardValue + metaValue) / duration) * (autoDispatch.currentMode?.speedWeight ?? 0);
   const urgencyValue = candidate.sourceType === 'special'
     ? Math.max(300 - (candidate.expiresInSeconds ?? 300), 0) * 120
     : 0;
 
-  return sourceWeight + rewardValue + metaValue + speedValue + urgencyValue;
+  return sourceWeight + rewardValue + metaValue + directiveValue + speedValue + urgencyValue;
 }
 
 function pickCommissionAutoDispatchTarget(snapshot = {}, autoDispatch = {}) {
@@ -829,6 +1037,7 @@ function startCommissionInState(state, registries, commissionId, { now = Date.no
   sanitizeBoard(state, now);
   updateSpecialOffers(state, now);
   refreshCommissionCaseFileOffers(state, now);
+  refreshCommissionDirectiveOffers(state, now);
   if (hasActiveCommission(state)) {
     return false;
   }
@@ -863,10 +1072,13 @@ function startCommissionInState(state, registries, commissionId, { now = Date.no
   }
 
   const preparationBoost = state.commissions.preparationBoost;
+  const activeDirective = getCurrentCommissionDirective(state);
   let evaluation = evaluateCommissionTeam(teamSnapshot, definition, {
     theme,
     sourceType,
   });
+  evaluation = applyDirectiveFocusToEvaluation(definition, evaluation, activeDirective);
+  evaluation = applyWarehouseBonusToEvaluation(definition, evaluation, state);
   evaluation = applyPreparationBoostToEvaluation(definition, evaluation, preparationBoost);
   const durationMultiplier = Number(preparationBoost?.durationMultiplier) || 1;
   const remainingSeconds = Math.max(Math.round((definition.durationSeconds ?? 1) * durationMultiplier), 1);
@@ -915,6 +1127,7 @@ function claimCommissionRewardInState(state, commissionId, { now = Date.now(), o
     state.commissions.specialClaimedCount = (state.commissions.specialClaimedCount ?? 0) + 1;
   }
   awardCommissionCaseFileProgress(state, completed, definition, now);
+  awardCommissionDirectiveProgress(state, completed, definition, now);
   sanitizeBoard(state, now);
   updateSpecialOffers(state, now);
   state.commissions.completed.splice(targetIndex, 1);
@@ -986,6 +1199,7 @@ export function createCommissionSystem() {
         sanitizeBoard(draft);
         updateSpecialOffers(draft);
         refreshCommissionCaseFileOffers(draft);
+        refreshCommissionDirectiveOffers(draft);
       }, { type: 'commissions/setup' });
 
       bus.on('action:commissions/start', ({ commissionId }) => {
@@ -1031,6 +1245,14 @@ export function createCommissionSystem() {
       bus.on('action:commissions/toggle-auto-resolve-events', () => {
         toggleCommissionAutoResolveEvents({ store });
       });
+
+      bus.on('action:commissions/select-directive', ({ directiveId }) => {
+        selectCommissionDirective({ store }, directiveId);
+      });
+
+      bus.on('action:commissions/claim-directive', () => {
+        claimCommissionDirectiveReward({ store });
+      });
     },
     tick({ store, registries }, deltaSeconds, source = 'runtime') {
       store.update((draft) => {
@@ -1040,6 +1262,7 @@ export function createCommissionSystem() {
         sanitizeBoard(draft, now);
         updateSpecialOffers(draft, now);
         refreshCommissionCaseFileOffers(draft, now);
+        refreshCommissionDirectiveOffers(draft, now);
         runCommissionAutomation(draft, registries, source, now);
         const active = draft.commissions.active;
         if (!active) {
@@ -1267,6 +1490,64 @@ export function purchaseCommissionAffairsShopItem({ store }, itemId) {
   return success;
 }
 
+export function selectCommissionDirective({ store }, directiveId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCommissionState(draft);
+    refreshCommissionDirectiveOffers(draft, Date.now());
+    if (draft.commissions.activeDirectiveId) {
+      return;
+    }
+
+    const definition = getCommissionDirectiveDefinition(directiveId);
+    if (!definition) {
+      return;
+    }
+    if (!(draft.commissions.directiveOfferIds ?? []).includes(directiveId)) {
+      return;
+    }
+
+    const availability = getCommissionDirectiveAvailability(definition, getCommissionStanding(draft));
+    if (!availability.unlocked) {
+      return;
+    }
+
+    draft.commissions.activeDirectiveId = directiveId;
+    draft.commissions.activeDirectiveProgress = 0;
+    draft.commissions.directiveRewardReady = false;
+    appendLog(draft, 'missions', `已启用执务策令：${definition.name}`);
+    success = true;
+  }, { type: 'commissions/select-directive', directiveId });
+
+  return success;
+}
+
+export function claimCommissionDirectiveReward({ store }) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCommissionState(draft);
+    const directive = getCurrentCommissionDirective(draft);
+    if (!directive || !draft.commissions.directiveRewardReady) {
+      return;
+    }
+
+    addRewardToState(draft, directive.reward ?? {});
+    draft.commissions.reputation = (draft.commissions.reputation ?? 0) + Math.max(directive.reputationReward ?? 0, 0);
+    draft.commissions.affairsCredit = (draft.commissions.affairsCredit ?? 0) + Math.max(directive.affairsCreditReward ?? 0, 0);
+    draft.commissions.completedDirectiveCount = (draft.commissions.completedDirectiveCount ?? 0) + 1;
+    draft.commissions.activeDirectiveId = null;
+    draft.commissions.activeDirectiveProgress = 0;
+    draft.commissions.directiveRewardReady = false;
+    refreshCommissionDirectiveOffers(draft, Date.now(), { force: true });
+    appendLog(draft, 'missions', `已领取执务策令奖励：${directive.name}`);
+    success = true;
+  }, { type: 'commissions/claim-directive' });
+
+  return success;
+}
+
 export function toggleCommissionAutoDispatch({ store }) {
   let enabled = false;
 
@@ -1401,10 +1682,12 @@ function mapOfferSnapshot(offer, teamSnapshot, state, now) {
     return null;
   }
 
-  const evaluation = evaluateCommissionTeam(teamSnapshot, definition, {
+  let evaluation = evaluateCommissionTeam(teamSnapshot, definition, {
     theme: getCurrentCommissionTheme(state),
     sourceType: 'special',
   });
+  evaluation = applyDirectiveFocusToEvaluation(definition, evaluation, getCurrentCommissionDirective(state));
+  evaluation = applyWarehouseBonusToEvaluation(definition, evaluation, state);
   return {
     ...definition,
     instanceId: offer.instanceId,
@@ -1482,6 +1765,38 @@ function mapCommissionAffairsShopSnapshot(state) {
   });
 }
 
+function mapCommissionDirectiveSnapshot(state) {
+  const standing = getCommissionStanding(state);
+  const activeDirective = getCurrentCommissionDirective(state);
+  const activeProgress = Math.max(state.commissions?.activeDirectiveProgress ?? 0, 0);
+  const requiredProgress = Math.max(activeDirective?.requiredProgress ?? 1, 1);
+
+  return {
+    completedCount: Math.max(state.commissions?.completedDirectiveCount ?? 0, 0),
+    active: activeDirective
+      ? {
+        ...activeDirective,
+        progress: activeProgress,
+        requiredProgress,
+        progressPercent: Math.min(Math.round((activeProgress / requiredProgress) * 100), 100),
+        rewardReady: Boolean(state.commissions?.directiveRewardReady),
+      }
+      : null,
+    offers: (state.commissions?.directiveOfferIds ?? [])
+      .map((directiveId) => getCommissionDirectiveDefinition(directiveId))
+      .filter(Boolean)
+      .map((definition) => {
+        const availability = getCommissionDirectiveAvailability(definition, standing);
+        return {
+          ...definition,
+          unlocked: availability.unlocked,
+          requiredStanding: availability.requiredStanding,
+          canSelect: availability.unlocked && !activeDirective,
+        };
+      }),
+  };
+}
+
 function mapCommissionCaseFileSnapshot(state, teamSnapshot) {
   const standing = getCommissionStanding(state);
   const currentTheme = getCurrentCommissionTheme(state);
@@ -1501,10 +1816,12 @@ function mapCommissionCaseFileSnapshot(state, teamSnapshot) {
     offeredIds: (state.commissions?.caseFileOffers ?? []).map((offer) => offer.caseFileId),
   }).map((definition) => {
     const offer = offerMap.get(definition.id);
-    const evaluation = evaluateCommissionTeam(teamSnapshot, definition, {
+    let evaluation = evaluateCommissionTeam(teamSnapshot, definition, {
       theme: currentTheme,
       sourceType: 'case',
     });
+    evaluation = applyDirectiveFocusToEvaluation(definition, evaluation, getCurrentCommissionDirective(state));
+    evaluation = applyWarehouseBonusToEvaluation(definition, evaluation, state);
 
     return {
       ...definition,
@@ -1525,11 +1842,13 @@ export function getCommissionSnapshot(state, registries) {
   const currentTheme = ensureCommissionTheme(state);
   sanitizeBoard(state);
   refreshCommissionCaseFileOffers(state);
+  refreshCommissionDirectiveOffers(state);
   const now = Date.now();
   const standing = getCommissionStandingSnapshot(state);
   const milestones = getCommissionMilestoneSnapshot(state);
   const supplies = mapCommissionSupplySnapshot(state);
   const affairsShop = mapCommissionAffairsShopSnapshot(state);
+  const directive = mapCommissionDirectiveSnapshot(state);
   const rerollCost = getCommissionRerollCostForState(state);
   const autoDispatch = getCommissionAutoDispatchState(state);
   const definitions = listCommissionDefinitions();
@@ -1541,10 +1860,12 @@ export function getCommissionSnapshot(state, registries) {
     .map((definitionId) => definitionMap.get(definitionId))
     .filter(Boolean)
     .map((definition) => {
-      const evaluation = evaluateCommissionTeam(teamSnapshot, definition, {
+      let evaluation = evaluateCommissionTeam(teamSnapshot, definition, {
         theme: currentTheme,
         sourceType: 'board',
       });
+      evaluation = applyDirectiveFocusToEvaluation(definition, evaluation, getCurrentCommissionDirective(state));
+      evaluation = applyWarehouseBonusToEvaluation(definition, evaluation, state);
       const cooldownUntil = state.commissions.cooldowns?.[definition.id] ?? 0;
       const coolingDown = isCommissionCoolingDown(state.commissions.cooldowns, definition.id, now);
       return {
@@ -1598,6 +1919,7 @@ export function getCommissionSnapshot(state, registries) {
     milestones,
     supplies,
     affairsShop,
+    directive,
     autoDispatch,
     caseFiles,
     currentTheme: currentTheme

@@ -4,6 +4,23 @@ function formatModifierPercent(value) {
   return `${sign}${percent}%`;
 }
 
+function formatCounterSummary(unit = {}) {
+  const counters = unit.counterProfile?.counterHits ?? [];
+  const weakHits = unit.counterProfile?.weakHits ?? [];
+  if (!counters.length && !weakHits.length) {
+    return '当前关卡无明显克制关系';
+  }
+
+  const parts = [];
+  if (counters.length) {
+    parts.push(`克制 ${counters.join(' / ')}`);
+  }
+  if (weakHits.length) {
+    parts.push(`被压制 ${weakHits.join(' / ')}`);
+  }
+  return parts.join(' · ');
+}
+
 function renderRecruitUnitCard(unit, options = {}) {
   const {
     battleLocked,
@@ -19,11 +36,13 @@ function renderRecruitUnitCard(unit, options = {}) {
       `\u5355\u4f53\u6218\u529b\uff1a${unit.power}`,
       `\u5355\u4f53\u8840\u91cf\uff1a${unit.hp}`,
       unit.tags?.length ? `\u7279\u6027\uff1a${unit.tags.map((tag) => getTagLabel(tag)).join(' / ')}` : '\u7279\u6027\uff1a\u65e0',
+      `\u5175\u79cd\u514b\u5236\uff1a${formatCounterSummary(unit)}`,
       `\u62db\u52df\u82b1\u8d39\uff1a${formatCostSummary(unit.trainingCost)}`,
     ])}>
       <div>
         <strong>${unit.name}</strong>
         <div class="muted">\u5f53\u524d ${unit.count} \u4eba \u00b7 \u7ad9\u4f4d\u7b2c ${unit.row} \u6392</div>
+        <div class="muted">${formatCounterSummary(unit)}</div>
       </div>
       <div class="inline-actions">
         ${[1, 2, 3, 4, 5, 6].map((row) => `<button class="ghost" data-action="set-unit-row" data-id="${unit.id}" data-row="${row}" ${battleLocked ? 'disabled' : ''}>${row}\u6392</button>`).join('')}
@@ -55,6 +74,45 @@ function renderWarRecruitmentSection(params) {
   `;
 }
 
+function renderCounterAdviceCard(counterAdvice, tooltipAttr) {
+  if (!(counterAdvice?.length > 0)) {
+    return '';
+  }
+
+  return `
+    <div class="card" ${tooltipAttr([
+      '\u6839\u636e\u5f53\u524d\u76ee\u6807\u5173\u5361\u7684\u654c\u65b9\u6807\u7b7e\uff0c\u63a8\u8350\u4f18\u5148\u4e0a\u9635\u6216\u8865\u62db\u8fd9\u4e9b\u5175\u79cd\u3002',
+      ...counterAdvice.map((item) => `${item.unitName}\uff1a\u514b\u5236 ${item.counterHits.join(' / ') || '\u65e0'}\uff1b\u53d7\u5236 ${item.weakHits.join(' / ') || '\u65e0'}`),
+    ])}>
+      <div class="card-title"><strong>\u5175\u79cd\u514b\u5236</strong><span class="tag">\u5f53\u524d\u5173\u5361</span></div>
+      <div class="detail-list">
+        ${counterAdvice.map((item) => `<span>${item.unitName}${item.count > 0 ? ` x${item.count}` : ''} \u00b7 \u514b ${item.counterHits.join('/') || '\u65e0'}${item.weakHits.length ? ` \u00b7 \u5fcc ${item.weakHits.join('/')}` : ''}</span>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderTacticalPlanCard(recommendation, tooltipAttr) {
+  if (!recommendation?.formation && !(recommendation?.squad?.length > 0)) {
+    return '';
+  }
+
+  return `
+    <div class="card" ${tooltipAttr([
+      '\u57fa\u4e8e\u5f53\u524d\u5173\u5361\u7684\u654c\u65b9\u6807\u7b7e\u3001\u5df2\u62db\u52df\u5175\u79cd\u4e0e\u73b0\u6709\u9635\u6cd5\u7ed9\u51fa\u7684\u8f7b\u91cf\u63a8\u8350\u3002',
+      recommendation.formation ? `\u63a8\u8350\u9635\u6cd5\uff1a${recommendation.formation.name}` : '\u6682\u65e0\u9635\u6cd5\u63a8\u8350',
+      ...(recommendation.squad ?? []).map((item) => `\u63a8\u8350\u5175\u79cd\uff1a${item.unitName} ${item.count || 0}/${item.targetCount || item.count || 0}`),
+    ])}>
+      <div class="card-title"><strong>\u63a8\u8350\u914d\u961f</strong><span class="tag">\u5f53\u524d\u5173\u5361</span></div>
+      ${recommendation.formation ? `<div class="muted">\u9635\u6cd5\u63a8\u8350\uff1a${recommendation.formation.name} \u00b7 ${recommendation.formation.description ?? ''}</div>` : ''}
+      ${recommendation.formation ? `<div class="inline-actions"><button class="secondary" data-action="apply-recommended-formation" data-id="${recommendation.formation.id}">\u4e00\u952e\u6574\u5907\u51fa\u6218</button></div>` : ''}
+      <div class="detail-list">
+        ${(recommendation.squad ?? []).map((item) => `<span>${item.unitName}${item.count > 0 ? ` x${item.count}` : ''}/${item.targetCount || item.count || 0} \u00b7 ${item.role} \u00b7 \u514b ${item.counters.join('/') || '\u65e0'}${item.weakHits.length ? ` \u00b7 \u5fcc ${item.weakHits.join('/')}` : ''}</span>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function renderWarSynergyCard(synergies, tooltipAttr) {
   const active = synergies?.active ?? [];
   const modifiers = synergies?.modifiers ?? { attack: 0, defense: 0, sustain: 0 };
@@ -80,5 +138,4 @@ function renderWarSynergyCard(synergies, tooltipAttr) {
   `;
 }
 
-export { renderWarRecruitmentSection, renderWarSynergyCard };
-
+export { renderCounterAdviceCard, renderTacticalPlanCard, renderWarRecruitmentSection, renderWarSynergyCard };

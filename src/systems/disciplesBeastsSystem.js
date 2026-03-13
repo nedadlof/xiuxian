@@ -6,6 +6,7 @@ import {
   getDiscipleResonanceCost,
   getDiscipleResonanceTitle,
 } from '../data/discipleAdvancement.js';
+import { getBeastBondSnapshot } from '../data/beastBonds.js';
 import { getExpeditionBondSnapshot } from '../data/expeditionBonds.js';
 import {
   filterCandidatesByGuarantee,
@@ -48,6 +49,8 @@ function ensureCharacterState(state) {
   state.disciples.expeditionTeam ??= { leaderId: null, supportIds: [] };
   state.beasts.unlocked ??= [];
   state.beasts.activeIds ??= [];
+  state.beasts.awakeningLevels ??= {};
+  state.beasts.bondLevels ??= {};
 
   for (const discipleId of state.disciples.owned ?? []) {
     if (!state.disciples.levels[discipleId]) {
@@ -284,6 +287,18 @@ export function createDisciplesBeastsSystem() {
 
       bus.on('action:beasts/toggleActive', ({ beastId }) => {
         toggleBeastActive({ store, bus, registries }, beastId);
+      });
+
+      bus.on('action:beasts/awaken', ({ beastId }) => {
+        awakenBeast({ store, bus, registries }, beastId);
+      });
+
+      bus.on('action:beasts/temper', ({ beastId }) => {
+        temperBeast({ store, bus, registries }, beastId);
+      });
+
+      bus.on('action:beasts/applyRecommendedLineup', () => {
+        applyRecommendedBeastLineup({ store, bus, registries });
       });
     },
     tick({ store }) {
@@ -548,6 +563,190 @@ export function toggleBeastActive({ store, registries }, beastId) {
   return success;
 }
 
+function getBeastAwakeningCost(level = 0) {
+  return {
+    beastShard: 2 + level * 2,
+    spiritCrystal: 18 + level * 12,
+  };
+}
+
+function canAwakenBeast(level = 0) {
+  return level < 5;
+}
+
+function getBeastBondCost(beast, level = 0) {
+  const base = beast?.contractCosts ?? { pills: 8, spiritCrystal: 6 };
+  const multiplier = 1 + level * 0.35;
+  return Object.fromEntries(
+    Object.entries(base).map(([resourceId, amount]) => [resourceId, Math.max(1, Math.round(amount * multiplier))]),
+  );
+}
+
+function canTemperBeast(level = 0) {
+  return level < 10;
+}
+
+function getBeastLineupSignature(beastIds = []) {
+  return [...beastIds].sort().join(':');
+}
+
+function buildBeastLineups(beasts = [], maxSize = 3) {
+  const lineups = [];
+  const limit = Math.min(Math.max(1, maxSize), beasts.length);
+
+  function visit(startIndex, current) {
+    if (current.length > 0) {
+      lineups.push([...current]);
+    }
+    if (current.length >= limit) {
+      return;
+    }
+
+    for (let index = startIndex; index < beasts.length; index += 1) {
+      current.push(beasts[index]);
+      visit(index + 1, current);
+      current.pop();
+    }
+  }
+
+  visit(0, []);
+  return lineups;
+}
+
+function scoreBeastEffect(effect) {
+  const value = Number(effect?.value) || 0;
+  switch (effect?.type) {
+    case 'battleAttack':
+      return value * 180;
+    case 'battleDefense':
+      return value * 155;
+    case 'battleSustain':
+      return value * 140;
+    case 'battleLoot':
+      return value * 150;
+    case 'unitPowerMultiplier':
+      return value * 175;
+    case 'resourceMultiplier':
+      return value * 90;
+    default:
+      return value * 60;
+  }
+}
+
+function evaluateBeastLineup(lineup = []) {
+  const activeBondSnapshot = getBeastBondSnapshot(lineup);
+  const effectScore = activeBondSnapshot.activeBonds
+    .flatMap((bond) => bond.effects ?? [])
+    .reduce((sum, effect) => sum + scoreBeastEffect(effect), 0);
+  const beastGrowthScore = lineup.reduce((sum, beast) => (
+    sum
+    + (beast.fitScore ?? 0) * 18
+    + (beast.awakeningLevel ?? 0) * 6
+    + (beast.bondLevel ?? 0) * 4
+  ), 0);
+  const compositionScore = lineup.length * 5
+    + activeBondSnapshot.activeBonds.length * 15
+    + activeBondSnapshot.uniqueArchetypeCount * 2
+    + activeBondSnapshot.totalFitScore * 4;
+
+  return {
+    beastIds: lineup.map((beast) => beast.id),
+    beasts: lineup.map((beast) => ({ ...beast })),
+    activeBondSnapshot,
+    score: beastGrowthScore + effectScore + compositionScore,
+  };
+}
+
+export function awakenBeast({ store, registries }, beastId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCharacterState(draft);
+    const beast = registries.beasts.get(beastId);
+    if (!beast || !draft.beasts.unlocked.includes(beastId)) {
+      return;
+    }
+
+    const currentLevel = draft.beasts.awakeningLevels?.[beastId] ?? 0;
+    if (!canAwakenBeast(currentLevel)) {
+      return;
+    }
+
+    const cost = getBeastAwakeningCost(currentLevel);
+    if (!canAfford(draft, cost)) {
+      return;
+    }
+
+    payCost(draft, cost);
+    draft.beasts.awakeningLevels[beastId] = currentLevel + 1;
+    appendLog(draft, 'beasts', `${beast.name} 觉醒至 ${currentLevel + 1} 阶`);
+    success = true;
+  }, { type: 'beasts/awaken', beastId });
+
+  return success;
+}
+
+export function temperBeast({ store, registries }, beastId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCharacterState(draft);
+    const beast = registries.beasts.get(beastId);
+    if (!beast || !draft.beasts.unlocked.includes(beastId)) {
+      return;
+    }
+
+    const currentLevel = draft.beasts.bondLevels?.[beastId] ?? 0;
+    if (!canTemperBeast(currentLevel)) {
+      return;
+    }
+
+    const cost = getBeastBondCost(beast, currentLevel);
+    if (!canAfford(draft, cost)) {
+      return;
+    }
+
+    payCost(draft, cost);
+    draft.beasts.bondLevels[beastId] = currentLevel + 1;
+    appendLog(draft, 'beasts', `${beast.name} 兽契提升至 ${currentLevel + 1} 阶`);
+    success = true;
+  }, { type: 'beasts/temper', beastId });
+
+  return success;
+}
+
+export function applyRecommendedBeastLineup({ store, registries }) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCharacterState(draft);
+    const snapshot = getBeastMenagerieSnapshot(draft, registries);
+    const recommendedIds = snapshot.recommendedLineup?.beastIds
+      ?.filter((id) => draft.beasts.unlocked.includes(id))
+      .slice(0, 3) ?? [];
+
+    if (!recommendedIds.length) {
+      return;
+    }
+
+    const currentSignature = getBeastLineupSignature(draft.beasts.activeIds ?? []);
+    const nextSignature = getBeastLineupSignature(recommendedIds);
+    if (currentSignature === nextSignature) {
+      return;
+    }
+
+    draft.beasts.activeIds = [...recommendedIds];
+    const beastNames = recommendedIds
+      .map((id) => registries.beasts.get(id)?.name ?? id)
+      .join('、');
+    const bondNames = snapshot.recommendedLineup?.activeBondSnapshot?.activeBonds?.map((bond) => bond.name).join('、');
+    appendLog(draft, 'beasts', `已套用推荐兽阵：${beastNames}${bondNames ? `（激活 ${bondNames}）` : ''}`);
+    success = true;
+  }, { type: 'beasts/apply-recommended-lineup' });
+
+  return success;
+}
+
 function canAfford(state, costMap) {
   for (const [resourceId, amount] of Object.entries(costMap ?? {})) {
     if ((state.resources?.[resourceId] ?? 0) < amount) {
@@ -808,10 +1007,62 @@ export function getDisciplesSnapshot(state, registries) {
 export function getBeastSnapshot(state, registries) {
   const unlocked = new Set(state.beasts.unlocked);
   const active = new Set(state.beasts.activeIds);
+  const currentStage = registries.stages.get(state.war?.currentStageId);
+  const currentEnemyTags = new Set(currentStage?.enemyTags ?? []);
 
   return registries.beasts.list().map((beast) => ({
     ...beast,
     unlocked: unlocked.has(beast.id),
     active: active.has(beast.id),
+    awakeningLevel: state.beasts.awakeningLevels?.[beast.id] ?? 0,
+    canAwaken: unlocked.has(beast.id) && canAwakenBeast(state.beasts.awakeningLevels?.[beast.id] ?? 0),
+    awakeningCost: getBeastAwakeningCost(state.beasts.awakeningLevels?.[beast.id] ?? 0),
+    bondLevel: state.beasts.bondLevels?.[beast.id] ?? 0,
+    canTemper: unlocked.has(beast.id) && canTemperBeast(state.beasts.bondLevels?.[beast.id] ?? 0),
+    bondCost: getBeastBondCost(beast, state.beasts.bondLevels?.[beast.id] ?? 0),
+    fitScore: (beast.favoredTags ?? []).reduce((sum, tag) => sum + (currentEnemyTags.has(tag) ? 1 : 0), 0),
   }));
+}
+
+export function getBeastMenagerieSnapshot(state, registries) {
+  const beasts = getBeastSnapshot(state, registries);
+  const unlockedBeasts = beasts.filter((beast) => beast.unlocked);
+  const activeBeasts = beasts.filter((beast) => beast.active);
+  const featuredBeast = [...unlockedBeasts]
+    .sort((left, right) => (
+      ((right.fitScore ?? 0) - (left.fitScore ?? 0))
+      || ((right.bondLevel ?? 0) - (left.bondLevel ?? 0))
+      || ((right.awakeningLevel ?? 0) - (left.awakeningLevel ?? 0))
+      || left.id.localeCompare(right.id)
+    ))[0] ?? null;
+
+  const recommendedLineup = buildBeastLineups(unlockedBeasts)
+    .map((lineup) => evaluateBeastLineup(lineup))
+    .sort((left, right) => (
+      (right.score - left.score)
+      || ((right.activeBondSnapshot?.activeBonds?.length ?? 0) - (left.activeBondSnapshot?.activeBonds?.length ?? 0))
+      || ((right.activeBondSnapshot?.totalFitScore ?? 0) - (left.activeBondSnapshot?.totalFitScore ?? 0))
+      || ((right.activeBondSnapshot?.totalBond ?? 0) - (left.activeBondSnapshot?.totalBond ?? 0))
+      || getBeastLineupSignature(left.beastIds).localeCompare(getBeastLineupSignature(right.beastIds))
+    ))[0] ?? null;
+
+  const activeLineup = evaluateBeastLineup(activeBeasts);
+  const activeSignature = getBeastLineupSignature(activeLineup.beastIds);
+  const recommendedSignature = getBeastLineupSignature(recommendedLineup?.beastIds ?? []);
+
+  return {
+    beasts,
+    featuredBeast,
+    activeLineup: {
+      ...activeLineup,
+      sameAsRecommended: Boolean(activeSignature && activeSignature === recommendedSignature),
+    },
+    activeBondSnapshot: activeLineup.activeBondSnapshot,
+    recommendedLineup: recommendedLineup
+      ? {
+        ...recommendedLineup,
+        sameAsActive: Boolean(activeSignature && activeSignature === recommendedSignature),
+      }
+      : null,
+  };
 }

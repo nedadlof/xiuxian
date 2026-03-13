@@ -33,6 +33,12 @@ function handleMissionsUiAction({ action, element, app }) {
     case 'toggle-commission-auto-resolve-events':
       app.bus.emit('action:commissions/toggle-auto-resolve-events');
       return true;
+    case 'select-commission-directive':
+      app.bus.emit('action:commissions/select-directive', { directiveId: element.dataset.id });
+      return true;
+    case 'claim-commission-directive':
+      app.bus.emit('action:commissions/claim-directive');
+      return true;
     default:
       return false;
   }

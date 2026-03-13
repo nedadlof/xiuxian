@@ -2331,3 +2331,988 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - `cmd /c run_ui_smoke.cmd --timeout 70`
   - result:
     - `SMOKE PASS 14/14`
+
+## commission-directives-v130
+- Based on `commission-auto-dispatch-v129`.
+- Goal: add a short-cycle strategic objective layer so the mission loop has immediate player-facing goals, not just long-term reputation and passive automation.
+- Files touched:
+  - `src/core/store.js`
+  - `src/data/commissions.js`
+  - `src/systems/commissionSystem.js`
+  - `src/ui/missionsEvents.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/dev/uiSmoke.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added directive state:
+    - `state.commissions.directiveOfferIds`
+    - `state.commissions.activeDirectiveId`
+    - `state.commissions.activeDirectiveProgress`
+    - `state.commissions.directiveRewardReady`
+    - `state.commissions.completedDirectiveCount`
+  - directive offers and progress now hydrate with saves
+- Commission data contract upgrade:
+  - added repeatable `执务策令` definitions with:
+    - standing unlock requirement
+    - preferred mission tags
+    - required progress
+    - focus score / reward bonuses
+    - completion reward, reputation bonus, and affairs-credit bonus
+  - added directive helpers:
+    - `listCommissionDirectiveDefinitions()`
+    - `getCommissionDirectiveDefinition(id)`
+    - `getCommissionDirectiveAvailability(...)`
+    - `rollCommissionDirectiveDefinitions(...)`
+    - `calculateCommissionDirectiveProgressGain(...)`
+- System behavior upgrade:
+  - missions page now maintains a three-offer directive pool when no directive is active
+  - selecting a directive applies a focus bonus to matching board / special / case commissions:
+    - better score preview
+    - extra projected rewards
+    - extra reputation / affairs-credit income on settlement
+  - claimed commissions now also feed progress into the active directive if tags match
+  - once progress reaches the directive threshold, the directive enters reward-ready state and can be manually claimed for a fresh reward package plus a new set of offers
+  - auto-dispatch scoring now heavily favors missions that match the currently active directive, so player-selected goals influence idle behavior instead of competing with it
+  - added new bus actions:
+    - `action:commissions/select-directive`
+    - `action:commissions/claim-directive`
+  - commission snapshot now exposes:
+    - directive offers
+    - active directive progress
+    - completion count
+    - evaluation-level directive bonus metadata
+- UI update:
+  - missions page now renders a dedicated `执务策令` section
+  - when no directive is active:
+    - shows three selectable directive cards
+  - when a directive is active:
+    - shows progress bar
+    - focus bonus summary
+    - completion reward summary
+    - direct claim button once the directive is finished
+  - board / special / active commission cards now also show whether the current directive is boosting that mission
+- Smoke update:
+  - `Commission Idle Loop` now verifies:
+    - the directive panel renders
+    - a known early directive can be selected
+    - the first settled mission can push that directive into reward-ready state
+    - the directive reward can be claimed successfully
+- Verified locally:
+  - `node --check src/data/commissions.js`
+  - `node --check src/core/store.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/ui/missionsEvents.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 14/14`
+
+## warehouse-module-v131
+- Based on `commission-directives-v130`.
+- Goal: land a real `仓库模块` that turns idle surplus resources into a playable management layer instead of leaving storage as a passive numeric cap.
+- Files touched:
+  - `src/app.js`
+  - `src/core/store.js`
+  - `src/data/warehouse.js`
+  - `src/dev/uiSmoke.js`
+  - `src/systems/commissionSystem.js`
+  - `src/systems/economySystem.js`
+  - `src/systems/warehouseSystem.js`
+  - `src/systems/warSystem.js`
+  - `src/ui/eventBinder.js`
+  - `src/ui/panelRenderers.js`
+  - `src/ui/panels/barracksPanel.js`
+  - `src/ui/panels/missionsPanel.js`
+  - `src/ui/panels/warehousePanel.js`
+  - `src/ui/panels/warPanel.js`
+  - `src/ui/tabConfig.js`
+  - `src/ui/warehouseEvents.js`
+  - `docs/module-summary-latest.md`
+- State/model update:
+  - added `state.warehouse`:
+    - `seals`
+    - `activeStrategyId`
+    - `autoSealEnabled`
+    - `nextAutoSealAt`
+  - warehouse save hydration now restores seal progress, active strategy, and auto-seal timer
+- Warehouse data contract:
+  - added `src/data/warehouse.js`
+  - added four repeatable seal slots:
+    - `灵泉地窖`
+    - `百草封架`
+    - `兵甲库湾`
+    - `卷宗秘架`
+  - each seal definition now includes:
+    - seal cost
+    - tracked resource set
+    - level thresholds
+    - effect summary
+  - added four strategy definitions:
+    - `均衡盘库`
+    - `丰产轮转`
+    - `宗务统筹`
+    - `战备统筹`
+  - added warehouse helpers:
+    - `listWarehouseSealDefinitions()`
+    - `getWarehouseSealDefinition(id)`
+    - `getWarehouseSealProgress(...)`
+    - `getWarehouseTotalSealLevel(...)`
+    - `getWarehouseStrategyAvailability(...)`
+    - `resolveWarehouseActiveStrategyId(...)`
+    - `getWarehouseEffects(state)`
+- System behavior upgrade:
+  - added dedicated `warehouse-system`
+  - players can manually seal resource bundles into permanent seal progress
+  - seal progress unlocks warehouse levels and new focus strategies
+  - added optional auto-seal loop that periodically converts affordable surplus into the most relevant seal for the current strategy
+  - warehouse immediately recalculates resource storage caps after sealing or switching strategy
+- Cross-system bonuses now applied for real:
+  - economy:
+    - `灵泉地窖` and strategy effects raise finite resource storage caps
+    - `百草封架` and growth strategies increase building output for idle production
+  - commissions:
+    - `卷宗秘架` and `宗务统筹` now increase mission reward preview
+    - extra reputation / affairs-credit bonuses are written into commission evaluation and settlement snapshots
+    - missions UI now exposes `仓策加成` alongside existing theme / directive bonuses
+  - war:
+    - `兵甲库湾` and `战备统筹` now increase stage base rewards and loot amount
+    - stage reward preview and battle settlement both consume the same warehouse effect snapshot
+- UI update:
+  - added new top-level `仓库` tab
+  - added `宗门仓库` panel with:
+    - total warehouse level
+    - active strategy
+    - auto-seal state
+    - current global bonus summary
+    - storage pressure board
+    - strategy switching list
+    - seal slot cards with progress bars and direct seal actions
+  - added new UI actions:
+    - `action:warehouse/seal`
+    - `action:warehouse/set-strategy`
+    - `action:warehouse/toggle-auto-seal`
+  - warehouse-related mission bonuses now render directly on mission / case / special / active cards instead of only affecting hidden settlement math
+- Smoke update:
+  - `Navigate All Tabs` now covers the new warehouse tab
+  - added `Warehouse Seal And Strategy Flow`
+  - smoke now verifies:
+    - warehouse page renders
+    - manual sealing works
+    - strategy unlock and switching work
+    - auto-seal can append an extra seal during runtime ticks
+- Verified locally:
+  - `node --check src/data/warehouse.js`
+  - `node --check src/systems/warehouseSystem.js`
+  - `node --check src/systems/economySystem.js`
+  - `node --check src/systems/commissionSystem.js`
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/panels/warehousePanel.js`
+  - `node --check src/ui/warehouseEvents.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/eventBinder.js`
+  - `node --check src/ui/tabConfig.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `node --check src/core/store.js`
+  - `node --check src/app.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - closing the smoke browser can still print a Python `ConnectionResetError`; this is the existing local HTTP server shutdown noise, not a smoke failure
+
+## 2026-03-12 战争页简化与联动奖励补强
+
+- Main goal:
+  - simplify the war gameplay loop so it fits挂机修仙节奏
+  - reduce battle-page complexity
+  - make battle rewards feed back into disciple recruitment, beasts, alchemy, forging, talisman crafting, and cultivation-related growth
+
+- War UI flow update:
+  - rewrote the war main panel into a simplified structure:
+    - `战斗总览`
+    - `本关联动收益`
+    - `当前战况`
+    - `最近战果`
+    - `关卡列表`
+  - the main combat interaction is now:
+    - `设为目标`
+    - `一键挑战`
+    - `再次扫荡`
+  - removed the need to stay in the main page for:
+    - per-turn manual commands
+    - replay-first interaction
+    - large historical report navigation
+  - the main page now communicates clearly that the intended loop is:
+    - set target
+    - auto-resolve
+    - inspect latest rewards
+
+- Reward linkage upgrade:
+  - added `buildLinkedBattleRewards(state, stage, expeditionBondSnapshot, options)` in `src/systems/warSystem.js`
+  - linked rewards are now derived from current cross-system state:
+    - disciple expedition team:
+      - additional `discipleShard`
+      - stronger drops when more members / resonance are present
+    - active beasts:
+      - additional `beastShard`
+      - additional `spiritCrystal`
+    - alchemy line:
+      - additional `herb`
+      - additional `pills`
+    - smithy / forging line:
+      - additional `iron`
+    - talisman workshop / magic-control enemies:
+      - additional `talisman`
+    - elite / boss encounters:
+      - extra `seekImmortalToken`
+      - boss can also drop `tianmingSeal`
+  - linked rewards are now injected into both:
+    - stage reward preview
+    - final battle settlement report
+
+- System wiring:
+  - `buildRewardPreview(...)` now exposes `linkedReward`
+  - `resolveStageRewards(...)` now merges linked rewards into the final reward map
+  - `resolveBattleReport(...)` now calculates linked rewards from live expedition / beast / building state
+  - `getWarSnapshot(...)` now precomputes linked reward previews per stage
+
+- Interaction update:
+  - added `quick-challenge-stage` handling in `src/ui/warEvents.js`
+  - implementation detail:
+    - start battle
+    - repeatedly pick auto commands via `pickAutoBattleCommand(...)`
+    - resolve until battle ends or guard limit is reached
+  - if the fight is not fully resolved in one burst, the remaining state stays in `当前战况`
+
+- Smoke update:
+  - replaced old war smoke assumptions that depended on:
+    - `challenge-stage`
+    - manual `battle-attack`
+    - replay controls as the primary page surface
+  - added new war smoke coverage:
+    - `War Auto Preferences And Quick Flow`
+    - `War Battle Reward Linkage`
+    - `War Stage Surface Simplicity`
+  - smoke now verifies:
+    - auto preference saving still works
+    - quick challenge directly creates battle reports
+    - linked rewards appear in the latest report
+    - the war main page surfaces simplified combat entry instead of replay-first UI
+
+- Verified locally:
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/ui/warEvents.js`
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - closing the smoke browser can still print a Python `ConnectionResetError`; this is existing local server shutdown noise, not a gameplay regression
+
+## 2026-03-12 灵兽觉醒与战利品消耗闭环
+
+- Main goal:
+  - make battle-dropped `beastShard` and `spiritCrystal` immediately useful
+  - turn the beast system from a pure toggle surface into an actual growth line
+  - strengthen the loop:
+    - battle victory
+    - linked loot
+    - beast growth
+    - stronger passive / battle bonuses
+
+- Beast progression upgrade:
+  - added beast awakening support in `src/systems/disciplesBeastsSystem.js`
+  - each unlocked beast now tracks:
+    - `awakeningLevel`
+    - `awakeningCost`
+    - `canAwaken`
+  - new action wired:
+    - `action:beasts/awaken`
+  - awakening rules:
+    - max awakening level is 5
+    - each level consumes:
+      - `beastShard`
+      - `spiritCrystal`
+    - awakening writes log entries for progression visibility
+
+- Effect scaling:
+  - upgraded `collectUnlockedEffects(...)` in `src/systems/shared/effectResolver.js`
+  - active beast modifiers are now scaled by awakening level
+  - scaling rule in this version:
+    - each awakening level increases the beast modifier multiplier by an extra fixed step
+  - this means battle-linked beast drops now feed directly back into:
+    - economy output beasts
+    - battle attack / defense beasts
+    - battle loot beasts
+
+- Beast UI update:
+  - expanded `src/ui/panels/beastsPanel.js`
+  - beasts page now shows:
+    - `灵兽养成` summary block
+    - current awakening level
+    - next awakening cost
+    - activation button
+    - awakening button
+  - this makes the value of `beastShard` visible to players immediately after war rewards
+
+- Beast events:
+  - added new UI event handling in `src/ui/beastsEvents.js`
+  - `awaken-beast` now dispatches to the beast system cleanly through the existing event bus
+
+- Smoke update:
+  - upgraded `Beasts Unlock And Toggle`
+  - smoke now verifies:
+    - beast unlock still works
+    - active toggle still works
+    - awakening increases the beast level
+    - awakening consumes `beastShard`
+    - beasts page renders the new `灵兽养成` section
+
+- Verified locally:
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/systems/shared/effectResolver.js`
+  - `node --check src/ui/panels/beastsPanel.js`
+  - `node --check src/ui/beastsEvents.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+
+## 2026-03-12 战备炼制与产业消耗闭环
+
+- Main goal:
+  - make `herb / pills / iron / talisman / spiritCrystal` usable beyond passive stockpiling
+  - connect industry resources with long-term battle progression
+  - deepen the loop:
+    - war rewards
+    - industry / linked loot accumulation
+    - workshop refinement
+    - permanent combat and economy bonuses
+
+- New battle preparation layer:
+  - added `src/data/battlePreparations.js`
+  - current preparation lines:
+    - `养气丹录`
+      - depends on `炼丹坊`
+      - consumes `herb + pills + dao`
+      - grants battle sustain and extra pills output
+    - `玄甲兵备`
+      - depends on `铸兵房`
+      - consumes `iron + wood + pills`
+      - grants battle defense and unit power
+    - `镇煞符阵`
+      - depends on `符箓阁`
+      - consumes `talisman + pills + spiritCrystal`
+      - grants battle attack and battle loot
+  - each line now has:
+    - persistent level progression
+    - scaling refinement cost
+    - max level cap
+    - cumulative effect summary
+
+- State and persistence:
+  - added persistent preparation state in `src/core/store.js`
+  - save / hydrate now preserve:
+    - `preparations.levels`
+
+- System wiring:
+  - upgraded `src/systems/economySystem.js`
+  - added:
+    - `refineBattlePreparation(...)`
+    - `getBattlePreparationSnapshot(...)`
+  - economy system now initializes preparation state during setup / tick
+  - new event bus action:
+    - `action:economy/refinePreparation`
+
+- Effect application:
+  - upgraded `src/systems/shared/effectResolver.js`
+  - battle preparation levels now contribute real effects into the shared modifier pipeline
+  - because they use the same global effect resolver, preparation bonuses automatically flow into:
+    - economy output
+    - battle stats
+    - battle loot calculations
+
+- UI update:
+  - expanded `src/ui/panels/economyPanel.js`
+  - added a new `战备炼制` section to the economy tab
+  - players can now see:
+    - unlocked preparation lines
+    - current preparation level
+    - cumulative bonus summary
+    - next refinement cost
+    - direct refine button
+  - this gives battle-linked resources a visible “where should I invest next” surface
+
+- Events update:
+  - upgraded `src/ui/economyEvents.js`
+  - added:
+    - `refine-preparation`
+  - upgraded `src/ui/panelRenderers.js`
+  - passed `formatCostSummary` into the beasts panel so new resource-cost UI remains consistent across systems
+
+- Smoke update:
+  - replaced `Trade Exchange Flow` with `Trade Exchange And Preparation Flow`
+  - smoke now verifies:
+    - economy tab still supports exchange
+    - preparation refinement succeeds
+    - preparation levels persist in state
+    - economy page renders the new `战备炼制` section
+
+- Verified locally:
+  - `node --check src/data/battlePreparations.js`
+  - `node --check src/systems/economySystem.js`
+  - `node --check src/systems/shared/effectResolver.js`
+  - `node --check src/ui/panels/economyPanel.js`
+  - `node --check src/ui/economyEvents.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/core/store.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-12 战前建议与强化跳转反馈
+
+- Main goal:
+  - reduce player guesswork before battle
+  - turn the new linked systems into actionable recommendations
+  - help players understand whether they should:
+    - refine preparations
+    - strengthen disciples
+    - activate beasts
+    - or just push the stage directly
+
+- War recommendation layer:
+  - added `buildBattleAdvice(...)` in `src/systems/warSystem.js`
+  - the advice generator now considers:
+    - current target stage
+    - enemy tags
+    - estimated army readiness
+    - current preparation levels
+    - expedition team size
+    - active beast count
+  - generated suggestions can point players toward:
+    - `玄甲兵备`
+    - `养气丹录`
+    - `镇煞符阵`
+    - disciple expedition completion
+    - beast activation
+
+- War snapshot upgrade:
+  - `getWarSnapshot(...)` now exposes:
+    - `battleAdvice`
+  - this keeps recommendation logic centralized in the war system instead of scattering heuristics into UI-only code
+
+- War UI update:
+  - expanded `src/ui/panels/warPanel.js`
+  - added a new `战前建议` panel to the simplified war page
+  - each recommendation now includes:
+    - short title
+    - why it matters for the current stage
+    - direct jump button to the recommended tab
+  - this makes the war page act as a real decision hub:
+    - see target
+    - understand linked rewards
+    - get advice
+    - jump to the right upgrade system
+    - return and challenge
+
+- Smoke update:
+  - upgraded `War Stage Surface Simplicity`
+  - smoke now verifies:
+    - `战前建议` renders
+    - advice panel still coexists with the simplified war layout
+    - advice buttons can jump to economy / disciples / beasts tabs successfully
+
+- Verified locally:
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-12 兵种克制玩法显性化
+
+- Main goal:
+  - make existing unit counter data visible and strategically meaningful
+  - turn unit matchup logic into a real player-facing gameplay layer
+  - help players decide:
+    - which unit to recruit
+    - which unit to bring for the current stage
+    - which matchups are favorable or risky
+
+- Combat logic upgrade:
+  - upgraded `src/systems/warSystem.js`
+  - added:
+    - `getCounterScore(...)`
+    - stage-aware `counterAdvice`
+  - the system now evaluates each available unit against the current target stage’s enemy tags
+  - snapshot data now includes:
+    - unit-level counter profile
+    - counter modifier
+    - top counter recommendations for the current stage
+
+- Barracks UI update:
+  - upgraded `src/ui/warRecruitView.js`
+  - each recruit card now shows current-stage matchup information:
+    - who the unit counters
+    - who the unit is weak into
+  - added a dedicated `兵种克制` summary card for the current stage
+  - upgraded `src/ui/panels/barracksPanel.js`
+  - barracks now surfaces:
+    - formation bonus
+    - counter summary
+    - recruitment list
+  - this makes the barracks page a better “prepare specifically for this stage” space
+
+- War UI update:
+  - upgraded `src/ui/panels/warPanel.js`
+  - war page now also includes a compact `兵种克制` block
+  - players can see matchup hints without leaving the simplified main battle page
+
+- Smoke update:
+  - upgraded:
+    - `Barracks Recruit And Arrange`
+    - `War Stage Surface Simplicity`
+  - smoke now verifies:
+    - barracks renders `兵种克制`
+    - war page renders `兵种克制`
+    - the simplified battle page still works after adding counter surfaces
+
+- Verified locally:
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/warRecruitView.js`
+  - `node --check src/ui/panels/barracksPanel.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-12 推荐配队与阵法建议
+
+- Main goal:
+  - make battle preparation more concrete than generic advice
+  - turn counter hints into an actual recommended lineup direction
+  - help players see:
+    - which formation best matches the current stage
+    - which units are the highest-value picks right now
+
+- Tactical recommendation layer:
+  - upgraded `src/systems/warSystem.js`
+  - added:
+    - `scoreFormationForStage(...)`
+    - `buildTacticalRecommendation(...)`
+  - the system now evaluates:
+    - current stage enemy tags
+    - formation modifiers
+    - unit counter profile
+    - already trained unit counts
+  - snapshot data now includes:
+    - `tacticalRecommendation.formation`
+    - `tacticalRecommendation.squad`
+
+- Barracks UI update:
+  - upgraded `src/ui/warRecruitView.js`
+  - added a new `推荐配队` card
+  - the barracks view now combines:
+    - formation bonus
+    - counter summary
+    - tactical lineup recommendation
+    - recruit list with matchup notes
+  - upgraded `src/ui/panels/barracksPanel.js`
+  - this makes the barracks tab much closer to a real “stage preparation room”
+
+- War UI update:
+  - upgraded `src/ui/panels/warPanel.js`
+  - war page now surfaces:
+    - `兵种克制`
+    - `推荐配队`
+    - `战前建议`
+  - this preserves the simplified battle flow while still giving more useful strategic guidance
+
+- Smoke update:
+  - upgraded:
+    - `Barracks Recruit And Arrange`
+    - `War Stage Surface Simplicity`
+  - smoke now verifies:
+    - barracks renders `推荐配队`
+    - war page renders `推荐配队`
+    - the simplified page still remains stable after extra recommendation panels
+
+- Verified locally:
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/warRecruitView.js`
+  - `node --check src/ui/panels/barracksPanel.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-12 一键套用推荐阵法
+
+- Main goal:
+  - reduce friction between recommendation and execution
+  - let players act on tactical suggestions immediately
+  - avoid forcing repeated manual formation switching after the system already knows the preferred setup
+
+- Interaction upgrade:
+  - upgraded `src/ui/warEvents.js`
+  - added:
+    - `apply-recommended-formation`
+  - current behavior:
+    - switch to the recommended formation
+    - immediately trigger auto-arrange
+    - refresh the page and give short feedback
+
+- UI update:
+  - upgraded `src/ui/warRecruitView.js`
+  - `推荐配队` card now includes:
+    - `一键套用推荐`
+  - upgraded `src/ui/panels/warPanel.js`
+  - war page tactical recommendation card also includes:
+    - `一键套用推荐`
+
+- Smoke update:
+  - upgraded:
+    - `Barracks Recruit And Arrange`
+    - `War Stage Surface Simplicity`
+  - smoke now verifies:
+    - recommended-formation action exists
+    - applying recommendation changes formation in barracks flow
+    - war page also exposes the apply button
+
+- Verified locally:
+  - `node --check src/ui/warEvents.js`
+  - `node --check src/ui/warRecruitView.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+
+## 2026-03-12 一键推荐整备
+
+- Main goal:
+  - make tactical recommendations closer to a true pre-battle preset
+  - reduce the gap between “recommended lineup” and “actually ready to fight”
+  - let players apply both:
+    - recommended formation
+    - recommended frontline / backline placement for suggested units
+
+- System upgrade:
+  - upgraded `src/systems/warSystem.js`
+  - `buildTacticalRecommendation(...)` now includes:
+    - `preferredRow` for recommended squad entries
+  - added:
+    - `applyRecommendedTactic({ store, registries })`
+  - current behavior:
+    - switch to the recommended formation
+    - assign recommended units to preferred rows
+    - preserve the rest of the system flow without introducing destructive resets
+
+- Event wiring:
+  - upgraded `src/ui/warEvents.js`
+  - `apply-recommended-formation` now dispatches to:
+    - `action:war/applyRecommendedTactic`
+  - transient feedback now reflects that the action is a full recommended prep step rather than only a formation switch
+
+- UI wording:
+  - upgraded:
+    - `src/ui/warRecruitView.js`
+    - `src/ui/panels/warPanel.js`
+  - action label changed from “套用推荐” to:
+    - `一键整备出战`
+  - this better matches the new behavior and player expectation
+
+- Smoke update:
+  - upgraded `Barracks Recruit And Arrange`
+  - smoke now verifies:
+    - recommended prep action exists
+    - formation changes after applying recommendation
+    - formation row data is written for a trained unit after recommended prep
+
+- Verified locally:
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/warEvents.js`
+  - `node --check src/ui/warRecruitView.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+
+## 2026-03-12 推荐补兵整备
+
+- Main goal:
+  - make recommended prep more complete than only switching formation and rows
+  - automatically fill key recommended units toward a practical target size when resources allow
+  - improve the feeling that one-click prep actually gets the army closer to a ready-to-fight state
+
+- Tactical recommendation upgrade:
+  - upgraded `src/systems/warSystem.js`
+  - recommended squad entries now include:
+    - `targetCount`
+    - `preferredRow`
+  - target count logic in this version is intentionally conservative:
+    - counter-relevant units aim higher
+    - non-counter recommended units still get a minimum useful target size
+
+- Recommended prep execution:
+  - upgraded `applyRecommendedTactic(...)`
+  - current behavior now includes:
+    - switch to recommended formation
+    - train recommended units toward target counts if resources are sufficient
+    - assign preferred rows for recommended units
+  - resource spending is capped by affordability checks, so the action stops naturally when cost cannot be covered
+
+- UI update:
+  - upgraded:
+    - `src/ui/warRecruitView.js`
+    - `src/ui/panels/warPanel.js`
+  - recommended squad display now shows:
+    - current count / target count
+  - this makes it much easier for players to understand whether the army is already close to the suggested setup
+
+- Smoke update:
+  - upgraded `Barracks Recruit And Arrange`
+  - smoke now verifies:
+    - recommended prep still changes formation
+    - recommended prep writes row data
+    - recommended prep does not reduce army size
+    - in the smoke scenario it successfully increases total trained units
+
+- Verified locally:
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/warRecruitView.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+
+## 2026-03-13 整备差额提示与补给引导
+
+- Main goal:
+  - make one-click recommended prep explain what is still missing
+  - avoid silent partial prep when resources are insufficient
+  - tell players:
+    - which resources blocked the recommendation
+    - which resource lines should be prioritized next
+
+- System update:
+  - upgraded `src/systems/warSystem.js`
+  - added helper logic for:
+    - missing unit training cost calculation
+    - recommended prep shortage summary
+  - recommended prep now records:
+    - `war.lastRecommendedPrep.missingResources`
+    - `war.lastRecommendedPrep.suggestedRewardFocus`
+  - this gives the UI a stable snapshot of why the current recommendation was only partially fulfilled
+
+- War UI update:
+  - upgraded `src/ui/panels/warPanel.js`
+  - recommended squad card now conditionally shows:
+    - `本次整备仍缺`
+    - `优先补`
+  - these only render when there is an actual shortage, keeping the panel clean when prep completed successfully
+
+- Renderer wiring:
+  - upgraded `src/ui/panelRenderers.js`
+  - passed `getResourceLabel` into the war panel so shortage resources can be shown with proper in-game names
+
+- Smoke update:
+  - upgraded `War Stage Surface Simplicity`
+  - smoke now verifies:
+    - if shortage feedback is rendered, the follow-up `优先补` guidance is also present
+
+- Verified locally:
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/panels/warPanel.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+
+## 2026-03-13 灵兽内容填充与兽契灌灵
+
+- Main goal:
+  - make the beast system feel like a real sub-progression instead of a thin toggle page
+  - enrich beast identities, growth loops, and current-stage decision value
+  - give battle-linked beast resources a second meaningful sink beyond awakening
+
+- Beast data enrichment:
+  - upgraded `src/data/beasts.js`
+  - each beast now carries richer content fields:
+    - `archetype`
+    - `favoredTags`
+    - `contractCosts`
+    - `traitLines`
+  - this provides a stronger fantasy layer and enables stage-fit recommendations in UI
+
+- New beast progression layer:
+  - upgraded `src/systems/disciplesBeastsSystem.js`
+  - added persistent beast bond progression:
+    - `beasts.bondLevels`
+  - added new beast action:
+    - `action:beasts/temper`
+  - added:
+    - `getBeastBondCost(...)`
+    - `canTemperBeast(...)`
+    - `temperBeast(...)`
+  - current beast growth now has two tracks:
+    - awakening
+    - beast-contract tempering
+
+- Effect scaling upgrade:
+  - upgraded `src/systems/shared/effectResolver.js`
+  - active beast effects now scale with:
+    - awakening level
+    - bond level
+  - this means beast-linked battle drops can now reinforce a longer-term beast power loop
+
+- Beast UI update:
+  - upgraded `src/ui/panels/beastsPanel.js`
+  - beasts page now includes:
+    - current target stage
+    - active beast lineup
+    - recommended beast for the current stage
+    - `兽契共鸣` summary
+    - archetype, trait lines, favored tags fit
+    - awakening progress
+    - bond progress
+    - temper action button
+  - this makes the page feel closer to a proper “灵兽图鉴 + 养成” panel
+
+- Beast events:
+  - upgraded `src/ui/beastsEvents.js`
+  - added support for:
+    - `temper-beast`
+
+- Smoke update:
+  - upgraded `Beasts Unlock And Toggle`
+  - smoke now verifies:
+    - beast activation still works
+    - awakening still works
+    - tempering increases bond level
+    - tempering consumes spirit crystals
+    - beasts page renders `兽契共鸣`
+
+- Verified locally:
+  - `node --check src/data/beasts.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/systems/shared/effectResolver.js`
+  - `node --check src/ui/panels/beastsPanel.js`
+  - `node --check src/ui/beastsEvents.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+
+## 2026-03-13 灵兽羁绊与推荐兽阵
+
+- Main goal:
+  - turn beasts from isolated single-card growth into a real combination layer
+  - let players understand:
+    - which beast lineup is strongest for the current stage
+    - which bonds are currently active
+    - and apply the recommendation in one click
+
+- New beast bond data:
+  - added `src/data/beastBonds.js`
+  - current bond set includes:
+    - `影掠同狩`
+    - `焚天乱界`
+    - `吞岳夺藏`
+    - `混岳藏锋`
+    - `灾庭猎阵`
+  - bond effects reuse existing global effect types:
+    - `battleAttack`
+    - `battleDefense`
+    - `battleSustain`
+    - `battleLoot`
+    - `resourceMultiplier`
+    - `unitPowerMultiplier`
+
+- Effect pipeline upgrade:
+  - upgraded `src/systems/shared/effectResolver.js`
+  - active beast lineups now generate:
+    - `beastBondSnapshot`
+    - `beastBondEffects`
+  - these are injected into the shared unlocked-effect pipeline, so beast bonds now affect real combat/economy calculations
+
+- Reward linkage fix:
+  - upgraded `src/systems/warSystem.js`
+  - battle reward loot bonus now reads global `battleLoot` effects from the unified resolver instead of only expedition effects
+  - this means:
+    - beast battle loot bonuses
+    - beast bond loot bonuses
+    - and other future linked loot modifiers
+    now all correctly flow into stage rewards
+
+- Beast system upgrade:
+  - upgraded `src/systems/disciplesBeastsSystem.js`
+  - added:
+    - `getBeastMenagerieSnapshot(...)`
+    - recommendation scoring for unlocked 1-3 beast lineups
+    - `applyRecommendedBeastLineup(...)`
+  - new event bus action:
+    - `action:beasts/applyRecommendedLineup`
+  - recommendation scoring currently considers:
+    - stage-fit tags
+    - awakening level
+    - beast-contract level
+    - active bond effects
+    - lineup composition value
+
+- Persistence cleanup:
+  - upgraded `src/core/store.js`
+  - beast save schema now explicitly preserves:
+    - `awakeningLevels`
+    - `bondLevels`
+
+- Beast UI update:
+  - upgraded `src/ui/panels/beastsPanel.js`
+  - beasts page now surfaces:
+    - current active lineup
+    - current active bonds
+    - recommended lineup
+    - recommended bond summary
+    - one-click `一键套用推荐兽阵`
+    - per-beast recommendation marker
+  - upgraded `src/ui/beastsEvents.js`
+  - added support for:
+    - `apply-recommended-beasts`
+
+- Smoke update:
+  - upgraded `Beasts Unlock And Toggle`
+  - smoke now verifies:
+    - beast activation still works
+    - awakening still works
+    - tempering still works
+    - beasts page renders `灵兽羁绊`
+    - recommended lineup button exists
+    - recommended lineup can switch current active beast array into a bond lineup
+    - `灾庭猎阵` can render in the recommendation surface
+
+- Verified locally:
+  - `node --check src/data/beastBonds.js`
+  - `node --check src/core/store.js`
+  - `node --check src/systems/shared/effectResolver.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/systems/warSystem.js`
+  - `node --check src/ui/panels/beastsPanel.js`
+  - `node --check src/ui/beastsEvents.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`

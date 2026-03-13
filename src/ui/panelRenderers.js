@@ -1,5 +1,6 @@
 import { overviewPanel } from './panels/overviewPanel.js';
 import { economyPanel } from './panels/economyPanel.js';
+import { warehousePanel } from './panels/warehousePanel.js';
 import { scripturePanel } from './panels/scripturePanel.js';
 import { logsPanel } from './panels/logsPanel.js?v=20260310-9';
 import { beastsPanel } from './panels/beastsPanel.js';
@@ -48,6 +49,14 @@ function createPanelRenderers({ uiState = {}, helpers = {} } = {}) {
       getResourceLabel,
       uiState: nextUiState ?? uiState,
     }),
+    warehouse: (state, registries, nextUiState) => warehousePanel(state, registries, {
+      tooltipAttr,
+      formatNumber,
+      formatTime,
+      formatCostSummary,
+      getResourceLabel,
+      uiState: nextUiState ?? uiState,
+    }),
     scripture: (state, registries, nextUiState) => scripturePanel(state, registries, {
       tooltipAttr,
       formatNumber,
@@ -65,6 +74,7 @@ function createPanelRenderers({ uiState = {}, helpers = {} } = {}) {
       tooltipAttr,
       formatNumber,
       formatCostSummary,
+      getResourceLabel,
       getEncounterTypeLabel,
       getTagLabel,
       getTransientUiFeedback,
@@ -82,6 +92,7 @@ function createPanelRenderers({ uiState = {}, helpers = {} } = {}) {
     }),
     beasts: (state, registries, nextUiState) => beastsPanel(state, registries, {
       tooltipAttr,
+      formatCostSummary,
       uiState: nextUiState ?? uiState,
     }),
     missions: (state, registries, nextUiState) => missionsPanel(state, registries, {

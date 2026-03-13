@@ -7,6 +7,11 @@
   getWorkerEfficiency,
   OFFLINE_REWARD_LIMIT_SECONDS,
 } from '../data/balance.js';
+import {
+  getBattlePreparationCost,
+  listBattlePreparationDefinitions,
+} from '../data/battlePreparations.js';
+import { getWarehouseEffects, getWarehouseStorageResourceIds } from '../data/warehouse.js';
 import { appendLog } from './shared/logs.js';
 import { collectUnlockedEffects, sumEffects } from './shared/effectResolver.js';
 
@@ -52,19 +57,29 @@ function getBuildingResourceMultiplier(state, registries, building) {
     'resourceMultiplier',
     (effect) => effect.resourceId === building.resourceId,
   );
+  const warehouseEffects = getWarehouseEffects(state);
+  const warehouseBonus = Math.max(warehouseEffects.economyGlobalOutputMultiplier ?? 0, 0)
+    + Math.max(warehouseEffects.economyOutputByResource?.[building.resourceId] ?? 0, 0);
 
-  return 1 + resourceBonus;
+  return 1 + resourceBonus + warehouseBonus;
 }
 
 function updateStorageCaps(state, registries) {
-  for (const building of registries.buildings.list()) {
-    const level = state.buildings[building.id]?.level ?? 0;
-    if (level <= 0) {
-      continue;
-    }
+  const warehouseEffects = getWarehouseEffects(state);
+  const storageMultiplier = 1 + Math.max(warehouseEffects.storageMultiplier ?? 0, 0);
+  const boostedResourceIds = new Set(getWarehouseStorageResourceIds());
 
-    state.storage[building.resourceId] = Math.round(building.baseStorage * (1.15 ** Math.max(level - 1, 0)));
+  for (const building of registries.buildings.list()) {
+    const level = Math.max(state.buildings[building.id]?.level ?? 0, 0);
+    const buildingMultiplier = 1.15 ** Math.max(level - 1, 0);
+    const warehouseMultiplier = boostedResourceIds.has(building.resourceId) ? storageMultiplier : 1;
+    state.storage[building.resourceId] = Math.round(building.baseStorage * buildingMultiplier * warehouseMultiplier);
   }
+}
+
+function ensurePreparationState(state) {
+  state.preparations ??= { levels: {} };
+  state.preparations.levels ??= {};
 }
 
 function payResourceCost(state, costMap) {
@@ -97,6 +112,7 @@ export function createEconomySystem() {
     setup({ store, bus, registries }) {
       store.update((draft) => {
         ensureBuildingState(draft, registries);
+        ensurePreparationState(draft);
         syncWorkforceState(draft);
         updateStorageCaps(draft, registries);
       }, { type: 'economy/setup' });
@@ -120,10 +136,15 @@ export function createEconomySystem() {
       bus.on('action:economy/upgradeDormitory', ({ dormitoryId }) => {
         upgradeDormitory({ store, bus, registries }, dormitoryId);
       });
+
+      bus.on('action:economy/refinePreparation', ({ preparationId }) => {
+        refineBattlePreparation({ store, registries }, preparationId);
+      });
     },
     tick({ store, registries }, deltaSeconds) {
       store.update((draft) => {
         ensureBuildingState(draft, registries);
+        ensurePreparationState(draft);
         syncWorkforceState(draft);
         updateStorageCaps(draft, registries);
 
@@ -304,6 +325,7 @@ export function getEconomyOverviewSnapshot(state, registries) {
   const idleWorkers = getIdleWorkers(state.workforce);
   const populationCap = state.workforce.populationCap;
   const totalWorkers = state.workforce.totalWorkers;
+  const preparations = getBattlePreparationSnapshot(state, registries);
 
   return {
     workforce: {
@@ -350,6 +372,7 @@ export function getEconomyOverviewSnapshot(state, registries) {
     totalPerSecond: totalPerHour / 3600,
     totalOfflineYield,
     offlineHours: OFFLINE_REWARD_LIMIT_SECONDS / 3600,
+    preparations,
   };
 }
 
@@ -441,6 +464,66 @@ export function getEconomySnapshot(state, registries) {
       productionGainPerSecond: Math.max((nextProductionPerHour - productionPerHour) / 3600, 0),
       offlineHours,
       offlineYieldEstimate,
+    };
+  });
+}
+
+export function refineBattlePreparation({ store, registries }, preparationId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureBuildingState(draft, registries);
+    ensurePreparationState(draft);
+    const definition = listBattlePreparationDefinitions().find((item) => item.id === preparationId);
+    if (!definition) {
+      return;
+    }
+
+    const unlockedBuildingIds = getUnlockedBuildingIds(draft, registries);
+    if (!unlockedBuildingIds.has(definition.buildingId)) {
+      return;
+    }
+
+    const currentLevel = draft.preparations.levels?.[preparationId] ?? 0;
+    const maxLevel = definition.maxLevel ?? 10;
+    if (currentLevel >= maxLevel) {
+      return;
+    }
+
+    const cost = getBattlePreparationCost(preparationId, currentLevel);
+    if (!payResourceCost(draft, cost)) {
+      return;
+    }
+
+    draft.preparations.levels[preparationId] = currentLevel + 1;
+    appendLog(draft, 'economy', `${definition.name} 提升至 Lv.${currentLevel + 1}`);
+    success = true;
+  }, { type: 'economy/refine-preparation', preparationId });
+
+  return success;
+}
+
+export function getBattlePreparationSnapshot(state, registries) {
+  ensurePreparationState(state);
+  const unlockedBuildingIds = getUnlockedBuildingIds(state, registries);
+
+  return listBattlePreparationDefinitions().map((definition) => {
+    const level = state.preparations.levels?.[definition.id] ?? 0;
+    const maxLevel = definition.maxLevel ?? 10;
+    const totalEffects = (definition.effects ?? []).map((effect) => ({
+      ...effect,
+      value: typeof effect.value === 'number' ? effect.value * level : effect.value,
+    }));
+
+    return {
+      ...definition,
+      unlocked: unlockedBuildingIds.has(definition.buildingId),
+      buildingName: registries.buildings.get(definition.buildingId)?.name ?? definition.buildingId,
+      level,
+      maxLevel,
+      nextCost: getBattlePreparationCost(definition.id, level),
+      canRefine: unlockedBuildingIds.has(definition.buildingId) && level < maxLevel,
+      totalEffects,
     };
   });
 }

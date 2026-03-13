@@ -15,6 +15,32 @@ export function economyPanel(state, registries, deps = {}) {
   const buildings = getEconomySnapshot(state, registries);
   const trade = getTradeSnapshot(state, registries);
 
+  function renderPreparationEffects(preparation) {
+    if (!(preparation.totalEffects?.length > 0)) {
+      return '尚未投入';
+    }
+
+    return preparation.totalEffects.map((effect) => {
+      const value = typeof effect.value === 'number' ? `${Math.round(effect.value * 100)}%` : effect.value;
+      switch (effect.type) {
+        case 'battleAttack':
+          return `攻势 +${value}`;
+        case 'battleDefense':
+          return `守势 +${value}`;
+        case 'battleSustain':
+          return `续航 +${value}`;
+        case 'battleLoot':
+          return `战利 +${value}`;
+        case 'unitPowerMultiplier':
+          return `兵阵战力 +${value}`;
+        case 'resourceMultiplier':
+          return `${getResourceLabel(effect.resourceId)}产出 +${value}`;
+        default:
+          return `${effect.type} ${value}`;
+      }
+    }).join(' · ');
+  }
+
   return `
     <div class="grid">
       <section class="panel">
@@ -68,6 +94,33 @@ export function economyPanel(state, registries, deps = {}) {
         </div>
       </section>
       <section class="panel">
+        <div class="panel-title"><h3>战备炼制</h3><span class="tag">战利品落地</span></div>
+        <div class="card">
+          <div class="muted">战斗掉落的灵草、丹药、玄铁和符箓，现在可以继续投入宗门常备战备。每次炼制都会形成永久加成，让刷图收益稳定反哺后续冲关。</div>
+        </div>
+        <div class="log-list">
+          ${overview.preparations.map((preparation) => `
+            <div class="log-item" ${tooltipAttr([
+              preparation.description,
+              `依托建筑：${preparation.buildingName}`,
+              `当前等级：${preparation.level}/${preparation.maxLevel}`,
+              `下一次消耗：${formatCostSummary(preparation.nextCost)}`,
+              `累计效果：${renderPreparationEffects(preparation)}`,
+              preparation.unlocked ? '状态：已开放炼制' : '状态：对应建筑尚未开放',
+            ])}>
+              <div>
+                <strong>${preparation.name}</strong>
+                <div class="muted">${preparation.buildingName} · Lv.${preparation.level}/${preparation.maxLevel}</div>
+                <div class="muted">${preparation.description}</div>
+                <div class="muted">累计效果：${renderPreparationEffects(preparation)}</div>
+                <div class="muted">下一次消耗：${formatCostSummary(preparation.nextCost)}</div>
+              </div>
+              <button ${preparation.canRefine ? '' : 'disabled'} data-action="refine-preparation" data-id="${preparation.id}">${preparation.level >= preparation.maxLevel ? '已满级' : '炼制一次'}</button>
+            </div>
+          `).join('')}
+        </div>
+      </section>
+      <section class="panel">
         <div class="panel-title"><h3>\u4ea4\u6613\u574a</h3><span class="tag">${trade.unlocked ? '\u5df2\u5f00\u653e' : '\u672a\u5f00\u653e'}</span></div>
         <div class="log-list">
           ${trade.routes.map((route) => `
@@ -87,4 +140,3 @@ export function economyPanel(state, registries, deps = {}) {
     </div>
   `;
 }
-

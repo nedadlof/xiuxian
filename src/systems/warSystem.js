@@ -1,6 +1,8 @@
 ﻿import { appendLog } from './shared/logs.js';
 import { collectUnlockedEffects, sumEffects } from './shared/effectResolver.js';
+import { listBattlePreparationDefinitions } from '../data/battlePreparations.js';
 import { resolveFormationSynergies } from '../data/formationSynergies.js';
+import { getWarehouseEffects } from '../data/warehouse.js';
 
 const BATTLE_PACING = {
   maxRounds: 10,
@@ -106,6 +108,17 @@ function getCounterModifier(unit, enemyTags = []) {
   return counterHits * 0.12 - weakHits * 0.1;
 }
 
+function getCounterScore(unit, enemyTags = []) {
+  const enemySet = new Set(enemyTags);
+  const counterHits = (unit.counters ?? []).filter((tag) => enemySet.has(tag));
+  const weakHits = (unit.weakAgainst ?? []).filter((tag) => enemySet.has(tag));
+  return {
+    counterHits,
+    weakHits,
+    score: counterHits.length * 2 - weakHits.length * 1.5,
+  };
+}
+
 function getStatusLabel(statusType) {
   return {
     poison: '\u4e2d\u6bd2',
@@ -177,10 +190,222 @@ function addResourceMap(target, source = {}) {
   return target;
 }
 
+function buildBattleAdvice(state, registries, currentStage, army) {
+  if (!currentStage) {
+    return [];
+  }
+
+  const advice = [];
+  const armyEstimate = Math.round(((army?.attackPower ?? 0) + (army?.defensePower ?? 0) + (army?.sustainPower ?? 0)) / 3);
+  const stagePowerGap = Math.max((currentStage.enemyPower ?? 0) - armyEstimate, 0);
+  const enemyTags = new Set(currentStage.enemyTags ?? []);
+  const preparationLevels = state.preparations?.levels ?? {};
+  const activeBeastCount = (state.beasts?.activeIds ?? []).length;
+  const expeditionCount = [
+    state.disciples?.expeditionTeam?.leaderId ?? null,
+    ...(state.disciples?.expeditionTeam?.supportIds ?? []),
+  ].filter(Boolean).length;
+  const preparationMap = new Map(listBattlePreparationDefinitions().map((item) => [item.id, item]));
+
+  if (stagePowerGap > 30 || enemyTags.has('defense') || enemyTags.has('melee')) {
+    const level = preparationLevels['smithy-armament'] ?? 0;
+    advice.push({
+      id: 'smithy-armament',
+      title: level <= 0 ? '先补玄甲兵备' : '继续补玄甲兵备',
+      summary: '当前关卡偏前线压制，先把防御和兵阵战力顶上去，推图容错会明显更稳。',
+      actionLabel: '前往产业页炼制',
+      targetTab: 'economy',
+      prepName: preparationMap.get('smithy-armament')?.name ?? '玄甲兵备',
+    });
+  }
+
+  if (enemyTags.has('control') || enemyTags.has('magic') || stagePowerGap > 0) {
+    const level = preparationLevels['alchemy-tonic'] ?? 0;
+    advice.push({
+      id: 'alchemy-tonic',
+      title: level <= 0 ? '优先炼制养气丹录' : '补强养气丹录',
+      summary: '目标关更吃续航和稳定推进，丹录能缓解被控和持久战压力，也会顺带提高丹药产出。',
+      actionLabel: '补续航',
+      targetTab: 'economy',
+      prepName: preparationMap.get('alchemy-tonic')?.name ?? '养气丹录',
+    });
+  }
+
+  if (currentStage.cleared || enemyTags.has('ranged') || enemyTags.has('support')) {
+    const level = preparationLevels['talisman-array'] ?? 0;
+    advice.push({
+      id: 'talisman-array',
+      title: level <= 0 ? '用符阵滚战利' : '继续升镇煞符阵',
+      summary: '这类关卡适合滚资源收益，符阵会同时提高输出和战利，适合用来刷联动材料。',
+      actionLabel: '冲收益',
+      targetTab: 'economy',
+      prepName: preparationMap.get('talisman-array')?.name ?? '镇煞符阵',
+    });
+  }
+
+  if (expeditionCount < 2) {
+    advice.push({
+      id: 'expedition-team',
+      title: '补满出征弟子',
+      summary: '当前出征人数偏少，战斗联动奖励会打折。把主将和两名副将配齐，掉落线会更完整。',
+      actionLabel: '前往弟子堂',
+      targetTab: 'disciples',
+      prepName: '出征阵容',
+    });
+  }
+
+  if (activeBeastCount <= 0) {
+    advice.push({
+      id: 'beast-support',
+      title: '带上一只灵兽',
+      summary: '灵兽未参战会少一截联动成长收益，至少激活一只可让刷图掉落更有长期价值。',
+      actionLabel: '前往灵兽页',
+      targetTab: 'beasts',
+      prepName: '灵兽支援',
+    });
+  }
+
+  return advice.slice(0, 3);
+}
+
+function scoreFormationForStage(formation, stage) {
+  const enemyTags = new Set(stage?.enemyTags ?? []);
+  let score = 0;
+
+  score += (formation.modifiers?.attack ?? 0) * 100;
+  score += (formation.modifiers?.defense ?? 0) * 100;
+  score += (formation.modifiers?.sustain ?? 0) * 100;
+
+  if (enemyTags.has('melee') || enemyTags.has('defense')) {
+    score += (formation.modifiers?.defense ?? 0) * 120;
+    score += (formation.modifiers?.sustain ?? 0) * 70;
+  }
+  if (enemyTags.has('ranged') || enemyTags.has('support')) {
+    score += (formation.modifiers?.attack ?? 0) * 110;
+  }
+  if (enemyTags.has('control') || enemyTags.has('magic') || enemyTags.has('fire')) {
+    score += (formation.modifiers?.sustain ?? 0) * 120;
+    score += (formation.modifiers?.defense ?? 0) * 40;
+  }
+
+  return score;
+}
+
+function buildTacticalRecommendation(state, registries, currentStage, units = []) {
+  if (!currentStage) {
+    return { formation: null, squad: [], shortage: { missingResources: {}, suggestedRewardFocus: [] } };
+  }
+
+  const formations = registries.systems.get('formations') ?? [];
+  const rankedFormations = formations
+    .map((formation) => ({
+      ...formation,
+      recommendationScore: scoreFormationForStage(formation, currentStage),
+    }))
+    .sort((left, right) => right.recommendationScore - left.recommendationScore);
+
+  const bestFormation = rankedFormations[0] ?? null;
+  const enemyTags = new Set(currentStage.enemyTags ?? []);
+  const squad = [...units]
+    .map((unit) => {
+      const count = state.war.trainedUnits?.[unit.id] ?? 0;
+      const tagScore = (unit.tags ?? []).reduce((sum, tag) => sum + (enemyTags.has(tag) ? -0.2 : 0), 0);
+      let preferredRow = getDefaultRow(unit);
+      if (unit.role === 'frontline' || unit.tags?.includes('defense')) preferredRow = 1;
+      else if (unit.tags?.includes('support') || unit.tags?.includes('sustain')) preferredRow = 6;
+      else if (unit.tags?.includes('ranged') || unit.tags?.includes('flying')) preferredRow = 5;
+      else if (unit.tags?.includes('burst') || unit.tags?.includes('pierce')) preferredRow = 3;
+      return {
+        unitId: unit.id,
+        unitName: unit.name,
+        count,
+        targetCount: Math.max(count, unit.counterProfile?.counterHits?.length > 0 ? 12 : 8),
+        score: (unit.counterProfile?.score ?? 0) + tagScore + Math.min(count / 8, 2),
+        counters: unit.counterProfile?.counterHits ?? [],
+        weakHits: unit.counterProfile?.weakHits ?? [],
+        role: unit.role,
+        preferredRow,
+      };
+    })
+    .filter((unit) => unit.count > 0 || unit.counters.length > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 3);
+
+  return {
+    formation: bestFormation,
+    squad,
+    shortage: {
+      missingResources: {},
+      suggestedRewardFocus: [],
+    },
+  };
+}
+
 function grantResources(state, resourceMap = {}) {
   for (const [resourceId, amount] of Object.entries(resourceMap)) {
     state.resources[resourceId] = (state.resources[resourceId] ?? 0) + amount;
   }
+}
+
+function getAffordableTrainAmount(state, unit, targetAmount) {
+  const safeTarget = Math.max(0, Math.floor(targetAmount));
+  let amount = 0;
+  while (amount < safeTarget && canAfford(state, unit.trainingCost, amount + 1)) {
+    amount += 1;
+  }
+  return amount;
+}
+
+function buildMissingCost(costMap = {}, affordedCount = 0, targetCount = 0) {
+  const missingCount = Math.max(targetCount - affordedCount, 0);
+  if (missingCount <= 0) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(costMap ?? {}).map(([resourceId, amount]) => [resourceId, amount * missingCount]),
+  );
+}
+
+function buildLinkedBattleRewards(state, stage, expeditionBondSnapshot = null, options = {}) {
+  const rewards = {};
+  const enemyTags = new Set(stage?.enemyTags ?? []);
+  const memberStations = new Set((expeditionBondSnapshot?.members ?? []).map((member) => member.station).filter(Boolean));
+  const activeBeastCount = (state.beasts?.activeIds ?? []).length;
+  const alchemyLevel = Math.max(state.buildings?.alchemy?.level ?? 0, 0);
+  const smithyLevel = Math.max(state.buildings?.smithy?.level ?? 0, 0);
+  const talismanLevel = Math.max(state.buildings?.talismanWorkshop?.level ?? 0, 0);
+  const encounterFactor = stage?.encounterType === 'boss' ? 2 : (stage?.encounterType === 'elite' ? 1.5 : 1);
+  const firstClearFactor = options.alreadyCleared ? 1 : 1.25;
+
+  if (memberStations.has('alchemy') || alchemyLevel > 0) {
+    rewards.herb = Math.max(18, Math.round((22 + alchemyLevel * 12) * firstClearFactor));
+    rewards.pills = Math.max(4, Math.round((6 + alchemyLevel * 3) * encounterFactor));
+  }
+  if (memberStations.has('smithy') || smithyLevel > 0) {
+    rewards.iron = Math.max(12, Math.round((16 + smithyLevel * 10) * encounterFactor));
+  }
+  if (talismanLevel > 0 || enemyTags.has('magic') || enemyTags.has('control')) {
+    rewards.talisman = Math.max(4, Math.round((4 + talismanLevel * 2) * encounterFactor));
+  }
+  if ((expeditionBondSnapshot?.members?.length ?? 0) >= 2) {
+    rewards.discipleShard = Math.max(
+      6,
+      Math.round(((expeditionBondSnapshot?.totalResonance ?? 0) * 0.8 + 8) * encounterFactor),
+    );
+  }
+  if (activeBeastCount > 0) {
+    rewards.beastShard = Math.max(1, Math.round(activeBeastCount * 0.6 * encounterFactor));
+    rewards.spiritCrystal = (rewards.spiritCrystal ?? 0) + Math.max(4, Math.round(activeBeastCount * 5 * encounterFactor));
+  }
+  if (stage?.encounterType === 'elite') {
+    rewards.seekImmortalToken = 1;
+  }
+  if (stage?.encounterType === 'boss') {
+    rewards.seekImmortalToken = Math.max(rewards.seekImmortalToken ?? 0, 1);
+    rewards.tianmingSeal = 1;
+  }
+
+  return Object.fromEntries(Object.entries(rewards).filter(([, amount]) => amount > 0));
 }
 
 function scaleResourceMap(resourceMap = {}, multiplier = 1) {
@@ -290,32 +515,39 @@ function rollLootEntries(entries = [], options = {}) {
   return { loot, lootRolls };
 }
 
-function buildRewardPreview(stage, cleared = false) {
+function buildRewardPreview(stage, cleared = false, warehouseEffects = null, linkedReward = {}) {
   const rewardProfile = getRewardProfile(stage);
+  const rewardMultiplier = 1 + Math.max(warehouseEffects?.warRewardMultiplier ?? 0, 0);
+  const lootAmountMultiplier = rewardProfile.lootAmountMultiplier * (1 + Math.max(warehouseEffects?.warLootAmountMultiplier ?? 0, 0));
   return {
     tier: rewardProfile.tier,
-    rewardMultiplier: rewardProfile.rewardMultiplier,
-    lootAmountMultiplier: rewardProfile.lootAmountMultiplier,
+    rewardMultiplier: rewardProfile.rewardMultiplier * rewardMultiplier,
+    lootAmountMultiplier,
     lootChanceMultiplier: rewardProfile.lootChanceMultiplier,
-    baseReward: scaleResourceMap(stage.reward ?? {}, rewardProfile.rewardMultiplier),
-    guaranteedLoot: entriesToResourceMap(rewardProfile.guaranteedDrops),
-    firstClearBonus: cleared ? {} : { ...(rewardProfile.firstClearBonus ?? {}) },
+    warehouseRewardMultiplier: rewardMultiplier,
+    warehouseLootAmountMultiplier: 1 + Math.max(warehouseEffects?.warLootAmountMultiplier ?? 0, 0),
+    baseReward: scaleResourceMap(stage.reward ?? {}, rewardProfile.rewardMultiplier * rewardMultiplier),
+    guaranteedLoot: entriesToResourceMap(rewardProfile.guaranteedDrops, lootAmountMultiplier),
+    firstClearBonus: cleared ? {} : scaleResourceMap(rewardProfile.firstClearBonus ?? {}, rewardMultiplier),
+    linkedReward: { ...(linkedReward ?? {}) },
     bonusLootTable: rewardProfile.bonusLootTable,
   };
 }
 
-function resolveStageRewards(stage, lootBonus = 1, alreadyCleared = false) {
+function resolveStageRewards(stage, lootBonus = 1, alreadyCleared = false, warehouseEffects = null, linkedReward = {}) {
   const rewardProfile = getRewardProfile(stage);
-  const baseReward = scaleResourceMap(stage.reward ?? {}, lootBonus * rewardProfile.rewardMultiplier);
-  const guaranteedLoot = entriesToResourceMap(rewardProfile.guaranteedDrops);
-  const firstClearBonus = alreadyCleared ? {} : { ...(rewardProfile.firstClearBonus ?? {}) };
+  const rewardMultiplier = 1 + Math.max(warehouseEffects?.warRewardMultiplier ?? 0, 0);
+  const lootAmountMultiplier = rewardProfile.lootAmountMultiplier * (1 + Math.max(warehouseEffects?.warLootAmountMultiplier ?? 0, 0));
+  const baseReward = scaleResourceMap(stage.reward ?? {}, lootBonus * rewardProfile.rewardMultiplier * rewardMultiplier);
+  const guaranteedLoot = entriesToResourceMap(rewardProfile.guaranteedDrops, lootAmountMultiplier);
+  const firstClearBonus = alreadyCleared ? {} : scaleResourceMap(rewardProfile.firstClearBonus ?? {}, rewardMultiplier);
   const randomStageLoot = rollLootEntries(stage.lootTable ?? [], {
-    amountMultiplier: rewardProfile.lootAmountMultiplier,
+    amountMultiplier: lootAmountMultiplier,
     chanceMultiplier: rewardProfile.lootChanceMultiplier,
     source: 'stage-loot',
   });
   const bonusLoot = rollLootEntries(rewardProfile.bonusLootTable ?? [], {
-    amountMultiplier: rewardProfile.lootAmountMultiplier,
+    amountMultiplier: lootAmountMultiplier,
     chanceMultiplier: rewardProfile.lootChanceMultiplier,
     source: 'bonus-loot',
   });
@@ -326,6 +558,7 @@ function resolveStageRewards(stage, lootBonus = 1, alreadyCleared = false) {
   addResourceMap(totalReward, firstClearBonus);
   addResourceMap(totalReward, randomStageLoot.loot);
   addResourceMap(totalReward, bonusLoot.loot);
+  addResourceMap(totalReward, linkedReward);
 
   return {
     totalReward,
@@ -336,7 +569,10 @@ function resolveStageRewards(stage, lootBonus = 1, alreadyCleared = false) {
       firstClearBonus,
       randomLoot: randomStageLoot.loot,
       bonusLoot: bonusLoot.loot,
+      linkedReward: { ...(linkedReward ?? {}) },
       lootRolls: [...randomStageLoot.lootRolls, ...bonusLoot.lootRolls],
+      warehouseRewardMultiplier: rewardMultiplier,
+      warehouseLootAmountMultiplier: 1 + Math.max(warehouseEffects?.warLootAmountMultiplier ?? 0, 0),
     },
   };
 }
@@ -2764,10 +3000,11 @@ function resolveBattleReport(draft, registries, stage, playerTeam, enemyTeam, ro
 
   applyUnitCasualties(draft, registries, casualtyRatio);
 
-  const rewardProfile = getRewardProfile(stage);
-  const rewardBreakdown = {
-    tier: rewardProfile.tier,
-    baseReward: {},
+      const rewardProfile = getRewardProfile(stage);
+      const warehouseEffects = getWarehouseEffects(draft);
+      const rewardBreakdown = {
+        tier: rewardProfile.tier,
+        baseReward: {},
     guaranteedLoot: {},
     firstClearBonus: {},
     randomLoot: {},
@@ -2775,16 +3012,17 @@ function resolveBattleReport(draft, registries, stage, playerTeam, enemyTeam, ro
     lootRolls: [],
   };
   const reward = {};
-  const { expeditionEffects, expeditionBondSnapshot } = collectUnlockedEffects(draft, registries);
+  const { all, expeditionBondSnapshot } = collectUnlockedEffects(draft, registries);
   const expeditionBondEffects = expeditionBondSnapshot?.activeBonds?.flatMap((bond) => bond.effects ?? []) ?? [];
 
-  if (victory) {
-    const lootBonus = 1 + sumEffects(expeditionEffects, 'battleLoot');
-    const alreadyCleared = draft.war.clearedStages.includes(stage.id);
-    const resolvedRewards = resolveStageRewards(stage, lootBonus, alreadyCleared);
-    addResourceMap(reward, resolvedRewards.totalReward);
-    Object.assign(rewardBreakdown, resolvedRewards.breakdown);
-    grantResources(draft, reward);
+      if (victory) {
+        const lootBonus = 1 + sumEffects(all, 'battleLoot');
+        const alreadyCleared = draft.war.clearedStages.includes(stage.id);
+        const linkedReward = buildLinkedBattleRewards(draft, stage, expeditionBondSnapshot, { alreadyCleared });
+        const resolvedRewards = resolveStageRewards(stage, lootBonus, alreadyCleared, warehouseEffects, linkedReward);
+        addResourceMap(reward, resolvedRewards.totalReward);
+        Object.assign(rewardBreakdown, resolvedRewards.breakdown);
+        grantResources(draft, reward);
 
     if (!alreadyCleared) {
       draft.war.clearedStages.push(stage.id);
@@ -2971,6 +3209,10 @@ export function createWarSystem() {
       bus.on('action:war/setCurrentStage', ({ stageId }) => {
         setCurrentStage({ store, registries }, stageId);
       });
+
+      bus.on('action:war/applyRecommendedTactic', () => {
+        applyRecommendedTactic({ store, registries });
+      });
     },
   };
 }
@@ -3064,6 +3306,54 @@ export function setCurrentStage({ store, registries }, stageId) {
     appendLog(draft, 'war', `已切换当前关卡：${stage.name}`);
     success = true;
   }, { type: 'war/set-current-stage', stageId });
+
+  return success;
+}
+
+export function applyRecommendedTactic({ store, registries }) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureFormationRows(draft, registries);
+    const snapshot = getWarSnapshot(draft, registries);
+    const recommendation = snapshot.tacticalRecommendation;
+    if (!recommendation?.formation) {
+      return;
+    }
+
+    const missingResources = {};
+    draft.war.formationId = recommendation.formation.id;
+    for (const item of recommendation.squad ?? []) {
+      const unit = registries.units.get(item.unitId);
+      if (!unit || !canUseUnit(draft, unit)) {
+        continue;
+      }
+      const currentCount = draft.war.trainedUnits?.[item.unitId] ?? 0;
+      const missingCount = Math.max((item.targetCount ?? currentCount) - currentCount, 0);
+      const recruitAmount = Math.min(getAffordableTrainAmount(draft, unit, missingCount), 12);
+      if (recruitAmount > 0) {
+        payCost(draft, unit.trainingCost, recruitAmount);
+        draft.war.trainedUnits[item.unitId] = currentCount + recruitAmount;
+      }
+      const shortageCost = buildMissingCost(unit.trainingCost, recruitAmount, missingCount);
+      addResourceMap(missingResources, shortageCost);
+      if ((draft.war.trainedUnits?.[item.unitId] ?? 0) <= 0) {
+        continue;
+      }
+      draft.war.formationRows[item.unitId] = item.preferredRow ?? getDefaultRow(unit);
+    }
+    const suggestedRewardFocus = Object.keys(missingResources)
+      .sort((left, right) => (missingResources[right] ?? 0) - (missingResources[left] ?? 0))
+      .slice(0, 3);
+    draft.war.lastRecommendedPrep = {
+      formationId: recommendation.formation.id,
+      missingResources,
+      suggestedRewardFocus,
+      updatedAt: Date.now(),
+    };
+    appendLog(draft, 'war', `已套用推荐战备：${recommendation.formation.name}`);
+    success = true;
+  }, { type: 'war/apply-recommended-tactic' });
 
   return success;
 }
@@ -3242,10 +3532,13 @@ export function commandBattle({ store, registries }, command) {
 
 export function getWarSnapshot(state, registries) {
   const formation = getFormation(registries, state.war.formationId);
+  const warehouseEffects = getWarehouseEffects(state);
+  const { expeditionBondSnapshot } = collectUnlockedEffects(state, registries);
   ensureFormationRows(state, registries);
 
   const stageSnapshots = registries.stages.list().map((stage) => {
     const cleared = state.war.clearedStages.includes(stage.id);
+    const linkedReward = buildLinkedBattleRewards(state, stage, expeditionBondSnapshot, { alreadyCleared: cleared });
     return {
       ...stage,
       unlocked: isStageUnlocked(state, stage),
@@ -3256,19 +3549,40 @@ export function getWarSnapshot(state, registries) {
       encounterType: stage.encounterType ?? 'normal',
       mechanics: stage.mechanics ?? [],
       rewardProfile: getRewardProfile(stage),
-      rewardPreview: buildRewardPreview(stage, cleared),
+      rewardPreview: buildRewardPreview(stage, cleared, warehouseEffects, linkedReward),
     };
   });
 
   const currentStage = stageSnapshots.find((stage) => stage.current) ?? stageSnapshots[0] ?? null;
   const army = calculateArmyPower(state, registries, currentStage);
   const activeBattle = state.war.currentBattle ? buildLiveBattleSnapshot(state.war.currentBattle) : null;
-  return {
-    units: getAvailableUnits(state, registries).map((unit) => ({
+  const stageEnemyTags = currentStage?.enemyTags ?? [];
+  const units = getAvailableUnits(state, registries).map((unit) => {
+    const counterProfile = getCounterScore(unit, stageEnemyTags);
+    return {
       ...unit,
       count: state.war.trainedUnits[unit.id] ?? 0,
       row: getUnitRow(state, registries, unit),
-    })),
+      counterProfile,
+      counterModifier: getCounterModifier(unit, stageEnemyTags),
+    };
+  });
+  const counterAdvice = [...units]
+    .filter((unit) => unit.count > 0 || unit.counterProfile.counterHits.length > 0)
+    .sort((left, right) => (right.counterProfile.score - left.counterProfile.score) || ((right.count ?? 0) - (left.count ?? 0)))
+    .slice(0, 3)
+    .map((unit) => ({
+      unitId: unit.id,
+      unitName: unit.name,
+      score: unit.counterProfile.score,
+      counterHits: unit.counterProfile.counterHits,
+      weakHits: unit.counterProfile.weakHits,
+      count: unit.count,
+    }));
+  const tacticalRecommendation = buildTacticalRecommendation(state, registries, currentStage, units);
+
+  return {
+    units,
     stages: stageSnapshots,
     formation,
     rowSummary: buildRowSummary(state, registries),
@@ -3279,6 +3593,10 @@ export function getWarSnapshot(state, registries) {
       strategyId: state.war.autoPreferences?.strategyId ?? 'skill-first',
       speedId: state.war.autoPreferences?.speedId ?? 'normal',
     },
+    counterAdvice,
+    tacticalRecommendation,
+    lastRecommendedPrep: state.war.lastRecommendedPrep ?? null,
+    battleAdvice: buildBattleAdvice(state, registries, currentStage, army),
     activeBattle,
     reports: state.war.battleReports,
   };

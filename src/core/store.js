@@ -128,6 +128,9 @@ export function createBaseState() {
         scriptureHall: 1,
       },
     },
+    preparations: {
+      levels: {},
+    },
     scripture: {
       era: '鸿蒙初开',
       unlockedNodes: [],
@@ -177,11 +180,19 @@ export function createBaseState() {
     beasts: {
       unlocked: [],
       activeIds: [],
+      awakeningLevels: {},
+      bondLevels: {},
     },
     trade: {
       unlocked: false,
       totalExchanged: 0,
       lastRouteId: null,
+    },
+    warehouse: {
+      seals: {},
+      activeStrategyId: 'balanced-ledger',
+      autoSealEnabled: false,
+      nextAutoSealAt: 0,
     },
     commissions: {
       active: null,
@@ -211,6 +222,11 @@ export function createBaseState() {
         autoResolveEvents: true,
         autoClaim: true,
       },
+      directiveOfferIds: [],
+      activeDirectiveId: null,
+      activeDirectiveProgress: 0,
+      directiveRewardReady: false,
+      completedDirectiveCount: 0,
     },
     logs: [],
   };
@@ -256,6 +272,14 @@ export function normalizeState(savedState = {}) {
       assignedWorkers: {
         ...base.workforce.assignedWorkers,
         ...(savedState.workforce?.assignedWorkers ?? {}),
+      },
+    },
+    preparations: {
+      ...base.preparations,
+      ...(savedState.preparations ?? {}),
+      levels: {
+        ...base.preparations.levels,
+        ...(savedState.preparations?.levels ?? {}),
       },
     },
     scripture: {
@@ -350,10 +374,26 @@ export function normalizeState(savedState = {}) {
       ...(savedState.beasts ?? {}),
       unlocked: uniqueList(savedState.beasts?.unlocked),
       activeIds: uniqueList(savedState.beasts?.activeIds, 3),
+      awakeningLevels: {
+        ...(savedState.beasts?.awakeningLevels ?? {}),
+      },
+      bondLevels: {
+        ...(savedState.beasts?.bondLevels ?? {}),
+      },
     },
     trade: {
       ...base.trade,
       ...(savedState.trade ?? {}),
+    },
+    warehouse: {
+      ...base.warehouse,
+      ...(savedState.warehouse ?? {}),
+      seals: {
+        ...(savedState.warehouse?.seals ?? {}),
+      },
+      activeStrategyId: savedState.warehouse?.activeStrategyId ?? base.warehouse.activeStrategyId,
+      autoSealEnabled: Boolean(savedState.warehouse?.autoSealEnabled ?? base.warehouse.autoSealEnabled),
+      nextAutoSealAt: Math.max(Number(savedState.warehouse?.nextAutoSealAt) || 0, 0),
     },
     commissions: {
       ...base.commissions,
@@ -412,6 +452,19 @@ export function normalizeState(savedState = {}) {
         ),
         autoClaim: Boolean(savedState.commissions?.autoDispatch?.autoClaim ?? base.commissions.autoDispatch.autoClaim),
       },
+      directiveOfferIds: uniqueList(savedState.commissions?.directiveOfferIds, 3),
+      activeDirectiveId: savedState.commissions?.activeDirectiveId ?? base.commissions.activeDirectiveId,
+      activeDirectiveProgress: Math.max(
+        Number(savedState.commissions?.activeDirectiveProgress ?? base.commissions.activeDirectiveProgress) || 0,
+        0,
+      ),
+      directiveRewardReady: Boolean(
+        savedState.commissions?.directiveRewardReady ?? base.commissions.directiveRewardReady,
+      ),
+      completedDirectiveCount: Math.max(
+        Number(savedState.commissions?.completedDirectiveCount ?? base.commissions.completedDirectiveCount) || 0,
+        0,
+      ),
     },
     logs: Array.isArray(savedState.logs)
       ? savedState.logs.slice(0, 80)

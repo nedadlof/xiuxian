@@ -8,7 +8,7 @@ import {
   stepWarReplay,
   syncWarReplayState,
 } from './warReportUi.js';
-import { getSelectedBattleTargetRow } from './warBattleUi.js';
+import { getSelectedBattleTargetRow, pickAutoBattleCommand } from './warBattleUi.js';
 import { clearWarAutoTimer } from './warSchedulers.js';
 
 function handleWarUiAction({ action, element, root, app, uiState, state, helpers }) {
@@ -31,6 +31,12 @@ function handleWarUiAction({ action, element, root, app, uiState, state, helpers
     case 'auto-arrange':
       app.bus.emit('action:war/autoArrange', {});
       return true;
+    case 'apply-recommended-formation': {
+      app.bus.emit('action:war/applyRecommendedTactic', {});
+      setTransientUiFeedback?.(uiState, 'warAutoPreferenceFeedback', '已按当前关卡推荐完成阵法与站位整备');
+      renderGame?.(root, app, uiState);
+      return true;
+    }
     case 'challenge-stage': {
       uiState.warBattleTargetRow = null;
       const stageId = element.dataset.id;
@@ -47,6 +53,31 @@ function handleWarUiAction({ action, element, root, app, uiState, state, helpers
           'warBattleControlFeedback',
           totalUnits > 0 ? '\u65e0\u6cd5\u53d1\u8d77\u6218\u6597\uff0c\u8bf7\u786e\u8ba4\u5173\u5361\u5df2\u89e3\u9501' : '\u65e0\u53ef\u7528\u5175\u79cd\uff0c\u8bf7\u5148\u62db\u52df\u5175\u79cd'
         );
+      }
+      syncReplayAfterWarAction?.(uiState, app);
+      renderGame?.(root, app, uiState);
+      return true;
+    }
+    case 'quick-challenge-stage': {
+      uiState.warBattleTargetRow = null;
+      const stageId = element.dataset.id;
+      app.bus.emit('action:war/startBattle', { stageId });
+      let guard = 0;
+      while (guard < 400) {
+        const nextState = app.store.getState();
+        const activeBattle = nextState.war?.currentBattle;
+        if (!activeBattle) {
+          break;
+        }
+        const command = pickAutoBattleCommand(uiState, activeBattle);
+        if (!command) {
+          break;
+        }
+        app.bus.emit('action:war/commandBattle', { command });
+        guard += 1;
+      }
+      if (app.store.getState().war?.currentBattle) {
+        setTransientUiFeedback?.(uiState, 'warBattleResultFeedback', '本次推演未能在单轮内结算，已保留到当前战况。');
       }
       syncReplayAfterWarAction?.(uiState, app);
       renderGame?.(root, app, uiState);

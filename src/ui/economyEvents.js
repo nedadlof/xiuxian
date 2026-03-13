@@ -18,10 +18,12 @@ function handleEconomyUiAction({ action, element, app }) {
     case 'assign-scripture-worker':
       app.bus.emit('action:economy/assignWorkers', { workerKey: 'scriptureHall', amount: Number(element.dataset.amount) });
       return true;
+    case 'refine-preparation':
+      app.bus.emit('action:economy/refinePreparation', { preparationId: element.dataset.id });
+      return true;
     default:
       return false;
   }
 }
 
 export { handleEconomyUiAction };
-
