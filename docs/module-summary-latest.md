@@ -4069,3 +4069,56 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - result:
     - `SMOKE PASS 16/16`
     - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
+## 2026-03-13 委托藏经阁日志页古典化补图
+
+- Main goal:
+  - continue the classical UI rollout into the remaining high-traffic pages that still felt visually older
+  - improve at-a-glance readability in `委托` by giving missions, case files, directives and completed tasks distinct thumbnails
+  - keep all interaction contracts unchanged while making the interface feel more consistently like one game
+
+- Page rollout:
+  - upgraded `src/ui/panels/scripturePanel.js`
+  - upgraded `src/ui/panels/missionsPanel.js`
+  - upgraded `src/ui/panels/logsPanel.js`
+  - upgraded `src/ui/panelRenderers.js`
+  - upgraded `src/ui/renderApp.js`
+  - upgraded `src/main.js`
+  - upgraded `index.html`
+  - upgraded `smoke.html`
+
+- Scripture page update:
+  - added a clearer overview block for workers / available nodes / unlocked nodes / current guidance
+  - research nodes now render with image thumbnails and more structured progression lines
+  - the page now better matches the scroll-like sect management shell instead of the older plain list styling
+
+- Missions page update:
+  - added visual headers and thumbnails for:
+    - expedition team summary
+    - sect theme / wind direction
+    - active and candidate directives
+    - case files
+    - board missions
+    - special offers
+    - completed commissions awaiting claim
+  - kept all original mission actions and progression logic untouched:
+    - start / claim / interrupt / reroll / directive selection still use the same `data-action` ids
+  - this makes the commission page easier to scan without reducing the depth of the existing commission system
+
+- Logs page update:
+  - added category-sensitive thumbnails so war / missions / beasts / economy entries are visually separated
+  - added a small log overview card to make the page feel consistent with the rest of the shell
+
+- Cache refresh:
+  - bumped the front-end module version chain again so browsers are less likely to show stale panel modules after this follow-up UI pass
+
+- Verified locally:
+  - `node --check src/ui/panels/scripturePanel.js`
+  - `node --check src/ui/panels/missionsPanel.js`
+  - `node --check src/ui/panels/logsPanel.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/renderApp.js`
+  - `node --check src/main.js`
+  - `python tools/run_ui_smoke.py --timeout 25`
+  - result:
+    - `SMOKE PASS 16/16`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression

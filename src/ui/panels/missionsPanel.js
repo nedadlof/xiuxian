@@ -1,4 +1,5 @@
 import { getCommissionSnapshot } from '../../systems/commissionSystem.js';
+import { renderEntityThumb } from '../entityVisuals.js?v=20260313-ui-refresh-2';
 
 function renderRewardSummary(reward = {}, formatCostSummary) {
   return Object.keys(reward ?? {}).length ? formatCostSummary(reward) : '暂无';
@@ -357,6 +358,17 @@ function renderEvaluationWarehouseSummary(evaluation = {}, formatCostSummary) {
   return parts.join(' · ') || '当前仓库未提供额外加成';
 }
 
+function getMissionCardRarity(evaluation = {}) {
+  const tierLabel = `${evaluation?.tier?.label ?? ''}`;
+  if (/[甲天绝]/.test(tierLabel)) {
+    return 'epic';
+  }
+  if (/[乙优良]/.test(tierLabel)) {
+    return 'rare';
+  }
+  return 'common';
+}
+
 function renderSpecialOfferCard(offer, deps = {}) {
   const {
     tooltipAttr,
@@ -382,28 +394,40 @@ function renderSpecialOfferCard(offer, deps = {}) {
       `额外奖励：${renderRewardSummary(offer.bonusReward, formatCostSummary)}`,
       `定向奖励：${renderRewardSummary(offer.evaluation?.affinityReward, formatCostSummary)}`,
     ])}>
-      <div class="card-title">
-        <strong>${offer.name}</strong>
-        <span class="tag">${biasTag ?? (offer.eventLabel ?? '限时诏令')}</span>
-      </div>
-      <div class="muted">${offer.description}</div>
-      <div class="detail-list">
-        <span>剩余 ${offer.expiresInSeconds} 秒</span>
-        <span>推荐评分 ${offer.recommendedScore}</span>
-        <span>队伍评分 ${offer.evaluation?.totalScore ?? 0}</span>
-        <span>专长加分 +${formatNumber(offer.evaluation?.strategyScore ?? 0)}</span>
-      </div>
-      <div class="muted">${offer.eventLabel ?? '限时诏令'} · ${biasTag ?? '自然出现'}</div>
-      <div class="muted">专长命中：${renderAffinitySummary(offer.evaluation)}</div>
-      <div class="muted">风向加成：${renderEvaluationThemeSummary(offer.evaluation, formatCostSummary)}</div>
-      <div class="muted">策令加成：${renderEvaluationDirectiveSummary(offer.evaluation, formatCostSummary)}</div>
-      <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(offer.evaluation, formatCostSummary)}</div>
-      <div class="muted">${renderReputationReward(offer.reputationReward)}</div>
-      <div class="muted">${renderAffairsCreditReward(offer.affairsCreditReward)}</div>
-      <div class="muted">预计收益：${renderRewardSummary(offer.evaluation?.totalReward, formatCostSummary)}</div>
-      <div class="muted">${offer.canStart ? `存在至 ${formatTime(offer.expiresAt)}` : '当前无法接取该限时诏令'}</div>
-      <div class="inline-actions">
-        <button ${offer.canStart ? '' : 'disabled'} data-action="start-commission" data-id="${offer.instanceId}" data-source-type="special">接取限时诏令</button>
+      <div class="entity-row">
+        ${renderEntityThumb({
+          kind: 'beast',
+          title: offer.name,
+          subtitle: offer.eventLabel ?? '限时诏令',
+          rarity: getMissionCardRarity(offer.evaluation),
+          badge: offer.name,
+          tone: `${offer.eventType ?? ''}/${offer.eventLabel ?? ''}`,
+        })}
+        <div class="entity-copy">
+          <div class="card-title">
+            <strong>${offer.name}</strong>
+            <span class="tag">${biasTag ?? (offer.eventLabel ?? '限时诏令')}</span>
+          </div>
+          <div class="muted">${offer.description}</div>
+          <div class="detail-list">
+            <span>剩余 ${offer.expiresInSeconds} 秒</span>
+            <span>推荐评分 ${offer.recommendedScore}</span>
+            <span>队伍评分 ${offer.evaluation?.totalScore ?? 0}</span>
+            <span>专长加分 +${formatNumber(offer.evaluation?.strategyScore ?? 0)}</span>
+          </div>
+          <div class="muted">${offer.eventLabel ?? '限时诏令'} · ${biasTag ?? '自然出现'}</div>
+          <div class="muted">专长命中：${renderAffinitySummary(offer.evaluation)}</div>
+          <div class="muted">风向加成：${renderEvaluationThemeSummary(offer.evaluation, formatCostSummary)}</div>
+          <div class="muted">策令加成：${renderEvaluationDirectiveSummary(offer.evaluation, formatCostSummary)}</div>
+          <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(offer.evaluation, formatCostSummary)}</div>
+          <div class="muted">${renderReputationReward(offer.reputationReward)}</div>
+          <div class="muted">${renderAffairsCreditReward(offer.affairsCreditReward)}</div>
+          <div class="muted">预计收益：${renderRewardSummary(offer.evaluation?.totalReward, formatCostSummary)}</div>
+          <div class="muted">${offer.canStart ? `存在至 ${formatTime(offer.expiresAt)}` : '当前无法接取该限时诏令'}</div>
+          <div class="inline-actions">
+            <button ${offer.canStart ? '' : 'disabled'} data-action="start-commission" data-id="${offer.instanceId}" data-source-type="special">接取限时诏令</button>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -439,12 +463,24 @@ export function missionsPanel(state, registries, deps = {}) {
         <div class="panel-title"><h3>宗门委托</h3><span class="tag">${active ? '执行中' : '待派遣'}</span></div>
         <div class="grid">
           <div class="card">
-            <div class="card-title"><strong>当前出征阵</strong><span class="tag">${missions.teamSnapshot.members.length} / 3</span></div>
-            <div class="muted">成员：${renderTeamNames(missions.teamSnapshot)}</div>
-            <div class="muted">羁绊：${missions.teamSnapshot.bonds?.activeBonds?.map((bond) => bond.name).join(' · ') || '未激活'}</div>
-            <div class="muted">阵营 ${missions.teamSnapshot.bonds?.uniqueFactionCount ?? 0} · 总共鸣 ${missions.teamSnapshot.bonds?.totalResonance ?? 0}</div>
-            <div class="inline-actions">
-              <button class="ghost" data-action="switch-tab" data-tab="disciples">前往弟子页调阵</button>
+            <div class="entity-row">
+              ${renderEntityThumb({
+                kind: 'disciple',
+                title: missions.teamSnapshot.members?.[0]?.name ?? '当前出征阵',
+                subtitle: '出征弟子',
+                rarity: missions.teamSnapshot.members?.[0]?.rarity ?? 'common',
+                badge: missions.teamSnapshot.members?.[0]?.name ?? '阵',
+                tone: missions.teamSnapshot.members?.map((member) => member.faction ?? '').join('/'),
+              })}
+              <div class="entity-copy">
+                <div class="card-title"><strong>当前出征阵</strong><span class="tag">${missions.teamSnapshot.members.length} / 3</span></div>
+                <div class="muted">成员：${renderTeamNames(missions.teamSnapshot)}</div>
+                <div class="muted">羁绊：${missions.teamSnapshot.bonds?.activeBonds?.map((bond) => bond.name).join(' · ') || '未激活'}</div>
+                <div class="muted">阵营 ${missions.teamSnapshot.bonds?.uniqueFactionCount ?? 0} · 总共鸣 ${missions.teamSnapshot.bonds?.totalResonance ?? 0}</div>
+                <div class="inline-actions">
+                  <button class="ghost" data-action="switch-tab" data-tab="disciples">前往弟子页调阵</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -513,11 +549,23 @@ export function missionsPanel(state, registries, deps = {}) {
         <section class="panel">
           <div class="panel-title"><h3>宗门风向</h3><span class="tag">剩余 ${currentTheme.expiresInSeconds} 秒</span></div>
           <div class="card">
-            <div class="card-title"><strong>${currentTheme.name}</strong><span class="tag">全局主题</span></div>
-            <div class="muted">${currentTheme.description}</div>
-            <div class="muted">${currentTheme.effectSummary ?? '当前风向会持续影响委托榜与限时诏令的生成。'}</div>
-            <div class="muted">${renderThemeTagSummary(currentTheme)}</div>
-            <div class="muted">${renderThemeBonusSummary(currentTheme, formatCostSummary)}</div>
+            <div class="entity-row">
+              ${renderEntityThumb({
+                kind: 'generic',
+                title: currentTheme.name,
+                subtitle: '宗门风向',
+                rarity: 'rare',
+                badge: currentTheme.name,
+                tone: (currentTheme.preferredTags ?? []).join('/'),
+              })}
+              <div class="entity-copy">
+                <div class="card-title"><strong>${currentTheme.name}</strong><span class="tag">全局主题</span></div>
+                <div class="muted">${currentTheme.description}</div>
+                <div class="muted">${currentTheme.effectSummary ?? '当前风向会持续影响委托榜与限时诏令的生成。'}</div>
+                <div class="muted">${renderThemeTagSummary(currentTheme)}</div>
+                <div class="muted">${renderThemeBonusSummary(currentTheme, formatCostSummary)}</div>
+              </div>
+            </div>
           </div>
         </section>
       ` : ''}
@@ -533,14 +581,26 @@ export function missionsPanel(state, registries, deps = {}) {
             `额外声望：${directive.active.reputationReward ?? 0}`,
             `额外事务点：${directive.active.affairsCreditReward ?? 0}`,
           ])}>
-            <div class="card-title"><strong>${directive.active.name}</strong><span class="tag">${directive.active.rewardReady ? '已达成' : '执行中'}</span></div>
-            <div class="muted">${directive.active.description}</div>
-            <div class="war-progress-track"><span class="war-progress-fill ally" style="width:${directive.active.progressPercent ?? 0}%"></span></div>
-            <div class="muted">${renderDirectiveProgressSummary(directive.active)}</div>
-            <div class="muted">${renderDirectiveFocusSummary(directive.active, formatCostSummary)}</div>
-            <div class="muted">完成奖励：${renderRewardSummary(directive.active.reward, formatCostSummary)} · 声望 +${directive.active.reputationReward ?? 0} · 事务点 +${directive.active.affairsCreditReward ?? 0}</div>
-            <div class="inline-actions">
-              <button ${directive.active.rewardReady ? '' : 'disabled'} data-action="claim-commission-directive">领取策令奖赏</button>
+            <div class="entity-row">
+              ${renderEntityThumb({
+                kind: 'generic',
+                title: directive.active.name,
+                subtitle: '执务策令',
+                rarity: directive.active.rewardReady ? 'epic' : 'rare',
+                badge: directive.active.name,
+                tone: (directive.active.preferredTags ?? []).join('/'),
+              })}
+              <div class="entity-copy">
+                <div class="card-title"><strong>${directive.active.name}</strong><span class="tag">${directive.active.rewardReady ? '已达成' : '执行中'}</span></div>
+                <div class="muted">${directive.active.description}</div>
+                <div class="war-progress-track"><span class="war-progress-fill ally" style="width:${directive.active.progressPercent ?? 0}%"></span></div>
+                <div class="muted">${renderDirectiveProgressSummary(directive.active)}</div>
+                <div class="muted">${renderDirectiveFocusSummary(directive.active, formatCostSummary)}</div>
+                <div class="muted">完成奖励：${renderRewardSummary(directive.active.reward, formatCostSummary)} · 声望 +${directive.active.reputationReward ?? 0} · 事务点 +${directive.active.affairsCreditReward ?? 0}</div>
+                <div class="inline-actions">
+                  <button ${directive.active.rewardReady ? '' : 'disabled'} data-action="claim-commission-directive">领取策令奖赏</button>
+                </div>
+              </div>
             </div>
           </div>
         ` : `
@@ -553,12 +613,24 @@ export function missionsPanel(state, registries, deps = {}) {
                 `完成奖励：${renderRewardSummary(offer.reward, formatCostSummary)}`,
                 offer.unlocked ? null : `解锁阶位：${offer.requiredStanding?.name ?? '未定'}`,
               ])}>
-                <div class="card-title"><strong>${offer.name}</strong><span class="tag">${offer.unlocked ? `需 ${offer.requiredProgress ?? 0} 次` : `需 ${offer.requiredStanding?.name ?? '更高阶位'}`}</span></div>
-                <div class="muted">${offer.description}</div>
-                <div class="muted">${renderDirectiveFocusSummary(offer, formatCostSummary)}</div>
-                <div class="muted">完成奖励：${renderRewardSummary(offer.reward, formatCostSummary)} · 声望 +${offer.reputationReward ?? 0} · 事务点 +${offer.affairsCreditReward ?? 0}</div>
-                <div class="inline-actions">
-                  <button ${offer.canSelect ? '' : 'disabled'} data-action="select-commission-directive" data-id="${offer.id}">${offer.unlocked ? '启用策令' : '尚未解锁'}</button>
+                <div class="entity-row">
+                  ${renderEntityThumb({
+                    kind: 'generic',
+                    title: offer.name,
+                    subtitle: '策令备选',
+                    rarity: offer.unlocked ? 'rare' : 'common',
+                    badge: offer.name,
+                    tone: (offer.preferredTags ?? []).join('/'),
+                  })}
+                  <div class="entity-copy">
+                    <div class="card-title"><strong>${offer.name}</strong><span class="tag">${offer.unlocked ? `需 ${offer.requiredProgress ?? 0} 次` : `需 ${offer.requiredStanding?.name ?? '更高阶位'}`}</span></div>
+                    <div class="muted">${offer.description}</div>
+                    <div class="muted">${renderDirectiveFocusSummary(offer, formatCostSummary)}</div>
+                    <div class="muted">完成奖励：${renderRewardSummary(offer.reward, formatCostSummary)} · 声望 +${offer.reputationReward ?? 0} · 事务点 +${offer.affairsCreditReward ?? 0}</div>
+                    <div class="inline-actions">
+                      <button ${offer.canSelect ? '' : 'disabled'} data-action="select-commission-directive" data-id="${offer.id}">${offer.unlocked ? '启用策令' : '尚未解锁'}</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             `).join('')}
@@ -581,24 +653,36 @@ export function missionsPanel(state, registries, deps = {}) {
               `额外奖励：${renderRewardSummary(caseFile.bonusReward, formatCostSummary)}`,
               caseFile.unlocked ? null : `解锁阶位：${caseFile.requiredStanding?.name ?? '未定'}`,
             ])}>
-              <div class="card-title"><strong>${caseFile.name}</strong><span class="tag">${renderCaseFileStatus(caseFile)}</span></div>
-              <div class="muted">${caseFile.description}</div>
-              <div class="muted">线索来源：${(caseFile.preferredTags ?? []).join(' · ') || '无'}</div>
-              <div class="war-progress-track"><span class="war-progress-fill ally" style="width:${caseFile.progressPercent ?? 0}%"></span></div>
-              <div class="detail-list">
-                <span>线索 ${caseFile.progress ?? 0} / ${caseFile.requiredProgress ?? 0}</span>
-                <span>推荐评分 ${caseFile.recommendedScore ?? 0}</span>
-                <span>队伍评分 ${caseFile.evaluation?.totalScore ?? 0}</span>
-                <span>评级 ${caseFile.evaluation?.tier?.label ?? '待定'}</span>
-              </div>
-              <div class="muted">${renderCaseFileProgressSummary(caseFile)}</div>
-              <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(caseFile.evaluation, formatCostSummary)}</div>
-              <div class="muted">预计收益：${renderRewardSummary(caseFile.evaluation?.totalReward, formatCostSummary)}</div>
-              <div class="muted">${renderReputationReward(caseFile.reputationReward)} · ${renderAffairsCreditReward(caseFile.affairsCreditReward)}</div>
-              <div class="inline-actions">
-                <button ${caseFile.canStart ? '' : 'disabled'} data-action="start-commission" data-id="${caseFile.instanceId ?? ''}" data-source-type="case">
-                  ${caseFile.resolved ? '已结案' : (caseFile.instanceId ? '追查悬案' : '继续搜证')}
-                </button>
+              <div class="entity-row">
+                ${renderEntityThumb({
+                  kind: 'generic',
+                  title: caseFile.name,
+                  subtitle: '卷宗悬案',
+                  rarity: getMissionCardRarity(caseFile.evaluation),
+                  badge: caseFile.name,
+                  tone: (caseFile.preferredTags ?? []).join('/'),
+                })}
+                <div class="entity-copy">
+                  <div class="card-title"><strong>${caseFile.name}</strong><span class="tag">${renderCaseFileStatus(caseFile)}</span></div>
+                  <div class="muted">${caseFile.description}</div>
+                  <div class="muted">线索来源：${(caseFile.preferredTags ?? []).join(' · ') || '无'}</div>
+                  <div class="war-progress-track"><span class="war-progress-fill ally" style="width:${caseFile.progressPercent ?? 0}%"></span></div>
+                  <div class="detail-list">
+                    <span>线索 ${caseFile.progress ?? 0} / ${caseFile.requiredProgress ?? 0}</span>
+                    <span>推荐评分 ${caseFile.recommendedScore ?? 0}</span>
+                    <span>队伍评分 ${caseFile.evaluation?.totalScore ?? 0}</span>
+                    <span>评级 ${caseFile.evaluation?.tier?.label ?? '待定'}</span>
+                  </div>
+                  <div class="muted">${renderCaseFileProgressSummary(caseFile)}</div>
+                  <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(caseFile.evaluation, formatCostSummary)}</div>
+                  <div class="muted">预计收益：${renderRewardSummary(caseFile.evaluation?.totalReward, formatCostSummary)}</div>
+                  <div class="muted">${renderReputationReward(caseFile.reputationReward)} · ${renderAffairsCreditReward(caseFile.affairsCreditReward)}</div>
+                  <div class="inline-actions">
+                    <button ${caseFile.canStart ? '' : 'disabled'} data-action="start-commission" data-id="${caseFile.instanceId ?? ''}" data-source-type="case">
+                      ${caseFile.resolved ? '已结案' : (caseFile.instanceId ? '追查悬案' : '继续搜证')}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           `).join('')}
@@ -744,26 +828,38 @@ export function missionsPanel(state, registries, deps = {}) {
                 biasTag ? `偏向来源：${biasTag}` : null,
                 mission.coolingDown ? `冷却结束：${formatTime(mission.cooldownUntil)}` : '当前可立即派遣',
               ])}>
-                <div class="card-title"><strong>${mission.name}</strong><span class="tag">${biasTag ?? `${mission.durationSeconds} 秒`}</span></div>
-                <div class="muted">${mission.description}</div>
-                <div class="detail-list">
-                  <span>推荐评分 ${mission.recommendedScore}</span>
-                  <span>队伍评分 ${mission.evaluation?.totalScore ?? 0}</span>
-                  <span>专长加分 +${formatNumber(mission.evaluation?.strategyScore ?? 0)}</span>
-                  <span>命中 ${mission.evaluation?.matchCount ?? 0} 条</span>
-                </div>
-                <div class="muted">专长命中：${renderAffinitySummary(mission.evaluation)}</div>
-                <div class="muted">风向加成：${renderEvaluationThemeSummary(mission.evaluation, formatCostSummary)}</div>
-                <div class="muted">策令加成：${renderEvaluationDirectiveSummary(mission.evaluation, formatCostSummary)}</div>
-                <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(mission.evaluation, formatCostSummary)}</div>
-                <div class="muted">${renderReputationReward(mission.reputationReward)}</div>
-                <div class="muted">${renderAffairsCreditReward(mission.affairsCreditReward)}</div>
-                <div class="muted">预计收益：${renderRewardSummary(mission.evaluation?.totalReward, formatCostSummary)}</div>
-                <div class="muted">${mission.coolingDown ? `委托冷却中，剩余 ${mission.cooldownRemainingSeconds} 秒` : `预计评级：${mission.evaluation?.tier?.label ?? '待定'}`}</div>
-                <div class="inline-actions">
-                  <button ${mission.canStart ? '' : 'disabled'} data-action="start-commission" data-id="${mission.id}" data-source-type="board">
-                    ${mission.coolingDown ? '冷却中' : '派遣委托'}
-                  </button>
+                <div class="entity-row">
+                  ${renderEntityThumb({
+                    kind: 'disciple',
+                    title: mission.name,
+                    subtitle: mission.evaluation?.tier?.label ?? '常驻委托',
+                    rarity: getMissionCardRarity(mission.evaluation),
+                    badge: mission.name,
+                    tone: (mission.tags ?? []).join('/'),
+                  })}
+                  <div class="entity-copy">
+                    <div class="card-title"><strong>${mission.name}</strong><span class="tag">${biasTag ?? `${mission.durationSeconds} 秒`}</span></div>
+                    <div class="muted">${mission.description}</div>
+                    <div class="detail-list">
+                      <span>推荐评分 ${mission.recommendedScore}</span>
+                      <span>队伍评分 ${mission.evaluation?.totalScore ?? 0}</span>
+                      <span>专长加分 +${formatNumber(mission.evaluation?.strategyScore ?? 0)}</span>
+                      <span>命中 ${mission.evaluation?.matchCount ?? 0} 条</span>
+                    </div>
+                    <div class="muted">专长命中：${renderAffinitySummary(mission.evaluation)}</div>
+                    <div class="muted">风向加成：${renderEvaluationThemeSummary(mission.evaluation, formatCostSummary)}</div>
+                    <div class="muted">策令加成：${renderEvaluationDirectiveSummary(mission.evaluation, formatCostSummary)}</div>
+                    <div class="muted">仓策加成：${renderEvaluationWarehouseSummary(mission.evaluation, formatCostSummary)}</div>
+                    <div class="muted">${renderReputationReward(mission.reputationReward)}</div>
+                    <div class="muted">${renderAffairsCreditReward(mission.affairsCreditReward)}</div>
+                    <div class="muted">预计收益：${renderRewardSummary(mission.evaluation?.totalReward, formatCostSummary)}</div>
+                    <div class="muted">${mission.coolingDown ? `委托冷却中，剩余 ${mission.cooldownRemainingSeconds} 秒` : `预计评级：${mission.evaluation?.tier?.label ?? '待定'}`}</div>
+                    <div class="inline-actions">
+                      <button ${mission.canStart ? '' : 'disabled'} data-action="start-commission" data-id="${mission.id}" data-source-type="board">
+                        ${mission.coolingDown ? '冷却中' : '派遣委托'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             `;
@@ -804,6 +900,15 @@ export function missionsPanel(state, registries, deps = {}) {
               `事务点收益：${renderAffairsCreditReward(mission.affairsCreditReward)}`,
               `奖励：${renderRewardSummary(mission.evaluation?.totalReward, formatCostSummary)}`,
             ])}>
+              ${renderEntityThumb({
+                kind: mission.sourceType === 'special' ? 'beast' : 'disciple',
+                title: mission.name,
+                subtitle: renderMissionSourceLabel(mission),
+                rarity: getMissionCardRarity(mission.evaluation),
+                badge: mission.name,
+                tone: mission.sourceType ?? 'board',
+                className: 'entity-thumb-small',
+              })}
               <div>
                 <strong>${mission.name}</strong>
                 <div class="muted">${renderMissionSourceLabel(mission)} · ${renderReputationReward(mission.reputationReward)} · ${renderAffairsCreditReward(mission.affairsCreditReward)}</div>
