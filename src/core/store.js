@@ -182,6 +182,10 @@ export function createBaseState() {
       activeIds: [],
       awakeningLevels: {},
       bondLevels: {},
+      expedition: {
+        active: null,
+        history: [],
+      },
     },
     trade: {
       unlocked: false,
@@ -379,6 +383,13 @@ export function normalizeState(savedState = {}) {
       },
       bondLevels: {
         ...(savedState.beasts?.bondLevels ?? {}),
+      },
+      expedition: {
+        ...base.beasts.expedition,
+        ...(savedState.beasts?.expedition ?? {}),
+        history: Array.isArray(savedState.beasts?.expedition?.history)
+          ? savedState.beasts.expedition.history.slice(0, 8)
+          : base.beasts.expedition.history,
       },
     },
     trade: {

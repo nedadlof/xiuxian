@@ -92,6 +92,7 @@ function createPanelRenderers({ uiState = {}, helpers = {} } = {}) {
     }),
     beasts: (state, registries, nextUiState) => beastsPanel(state, registries, {
       tooltipAttr,
+      getResourceLabel,
       formatCostSummary,
       uiState: nextUiState ?? uiState,
     }),

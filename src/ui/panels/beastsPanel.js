@@ -6,6 +6,30 @@ function formatBondPercent(value) {
   return `${sign}${Math.round(safeValue * 100)}%`;
 }
 
+function formatDuration(seconds = 0) {
+  const safeSeconds = Math.max(0, Math.round(Number(seconds) || 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  const remainSeconds = safeSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}时${minutes}分`;
+  }
+  if (minutes > 0) {
+    return `${minutes}分${remainSeconds > 0 ? `${remainSeconds}秒` : ''}`;
+  }
+  return `${remainSeconds}秒`;
+}
+
+function renderResourceMap(resourceMap = {}, getResourceLabel) {
+  const entries = Object.entries(resourceMap ?? {});
+  if (!entries.length) {
+    return '暂无';
+  }
+
+  return entries.map(([resourceId, amount]) => `${getResourceLabel?.(resourceId) ?? resourceId} ${amount}`).join(' · ');
+}
+
 function getBondEffectLabel(effect = {}) {
   switch (effect.type) {
     case 'battleAttack':
@@ -54,8 +78,24 @@ function renderBondList(snapshot, emptyLabel = '当前未激活灵兽羁绊') {
   `).join('');
 }
 
+function renderExpeditionHistory(history = [], getResourceLabel) {
+  if (!history.length) {
+    return '<div class="muted">暂无巡游记录，派出一只灵兽去外巡后会记录最近收获。</div>';
+  }
+
+  return history.map((entry) => `
+    <div class="log-item">
+      <div>
+        <strong>${entry.routeName}</strong>
+        <div class="muted">${entry.beastName} · ${entry.qualityLabel} · 收益 ${renderResourceMap(entry.rewardMap, getResourceLabel)}</div>
+      </div>
+      <span class="tag">已带回</span>
+    </div>
+  `).join('');
+}
+
 export function beastsPanel(state, registries, deps = {}) {
-  const { tooltipAttr, formatCostSummary } = deps;
+  const { tooltipAttr, formatCostSummary, getResourceLabel } = deps;
   const menagerie = getBeastMenagerieSnapshot(state, registries);
   const beasts = menagerie.beasts;
   const currentStage = registries.stages.get(state.war?.currentStageId);
@@ -67,6 +107,7 @@ export function beastsPanel(state, registries, deps = {}) {
   const activeNames = renderLineupNames(activeLineup, '未激活');
   const recommendedNames = renderLineupNames(recommendedLineup, '暂无推荐');
   const recommendedBondNames = recommendedBondSnapshot.activeBonds?.map((bond) => bond.name).join('、') || '暂无羁绊联动';
+  const expedition = menagerie.expedition ?? { active: null, history: [], routes: [] };
 
   return `
     <div class="grid">
@@ -74,7 +115,7 @@ export function beastsPanel(state, registries, deps = {}) {
         <div class="panel-title"><h3>万象森罗录</h3><span class="tag">激活 ${state.beasts.activeIds.length}/3</span></div>
         <div class="card">
           <div class="card-title"><strong>灵兽养成</strong><span class="tag">灵兽碎片 ${state.resources?.beastShard ?? 0}</span></div>
-          <div class="muted">战斗胜利掉落的灵兽碎片、灵晶与副产资源，现在可以沿着觉醒、兽契、兽阵三条线回流成长，灵兽不再只是单卡激活，而是一个可编队的长期玩法。</div>
+          <div class="muted">战斗胜利掉落的灵兽碎片、灵晶与副产资源，现在可以沿着觉醒、兽契、兽阵、巡游四条线回流成长。灵兽不只是上阵位，也开始承担挂机探索与资源调度职责。</div>
         </div>
         <div class="mini-grid">
           <div class="card"><div class="muted">当前目标</div><strong>${currentStage?.name ?? '未选择关卡'}</strong></div>
@@ -109,6 +150,50 @@ export function beastsPanel(state, registries, deps = {}) {
             <div class="card-title"><strong>推荐可激活羁绊</strong><span class="tag">推荐阵列</span></div>
             ${renderBondList(recommendedBondSnapshot, '当前推荐更偏单兽强度，暂未形成羁绊联动。')}
           </div>
+        </div>
+        <div class="panel-title"><h3>灵兽巡游</h3><span class="tag">${expedition.active ? (expedition.active.completed ? '待收取' : '进行中') : '空闲'}</span></div>
+        <div class="grid">
+          <div class="card">
+            <div class="card-title"><strong>当前巡游</strong><span class="tag">${expedition.active?.routeName ?? '未派遣'}</span></div>
+            ${expedition.active ? `
+              <div class="muted">${expedition.active.beastName} 正在执行 ${expedition.active.routeName}，当前品质 ${expedition.active.qualityLabel}</div>
+              <div class="muted">预计收获：${renderResourceMap(expedition.active.rewardMap, getResourceLabel)}</div>
+              <div class="muted">${expedition.active.completed ? '巡游已经结束，可以立刻收取。' : `剩余时间 ${formatDuration(expedition.active.remainingSeconds)}`}</div>
+              <div class="inline-actions">
+                <button data-action="claim-beast-expedition" ${expedition.active.completed ? '' : 'disabled'}>收取巡游战利</button>
+                <span class="muted">${expedition.active.completed ? '收取后即可继续派出下一次巡游' : '巡游期间会保留当前灵兽养成与上阵效果'}</span>
+              </div>
+            ` : '<div class="muted">当前没有进行中的巡游，可从下方路线中选择一条并派出推荐灵兽。</div>'}
+          </div>
+          <div class="card">
+            <div class="card-title"><strong>最近收获</strong><span class="tag">${expedition.history?.length ?? 0} 条</span></div>
+            <div class="log-list">
+              ${renderExpeditionHistory(expedition.history, getResourceLabel)}
+            </div>
+          </div>
+        </div>
+        <div class="log-list">
+          ${expedition.routes.map((route) => `
+            <div class="log-item" ${tooltipAttr([
+              route.description ?? '暂无描述',
+              `偏好标签：${(route.preferredTags ?? []).join(' / ') || '暂无'}`,
+              `推荐灵兽：${route.recommendedBeast?.name ?? '待解锁'}`,
+              `预计耗时：${formatDuration(route.durationSeconds)}`,
+              `预计收益：${renderResourceMap(route.rewardPreview, getResourceLabel)}`,
+            ])}>
+              <div>
+                <strong>${route.name}</strong>
+                <div class="muted">${route.description}</div>
+                <div class="muted">偏好标签：${(route.preferredTags ?? []).join(' / ') || '暂无'} · 推荐灵兽：${route.recommendedBeast?.name ?? '待解锁'} · 品质 ${route.qualityLabel}</div>
+                <div class="muted">预计耗时 ${formatDuration(route.durationSeconds)} · 预计收益 ${renderResourceMap(route.rewardPreview, getResourceLabel)}</div>
+                <div class="muted">${route.unlocked ? (route.bonusUnlocked ? '本次派遣预计触发额外收获。' : '当前可稳定获得基础巡游收益。') : `需至少解锁 ${route.minUnlockedBeasts ?? 1} 只灵兽后开放。`}</div>
+              </div>
+              <div class="inline-actions">
+                <button data-action="start-beast-expedition" data-route="${route.id}" ${route.canStart ? '' : 'disabled'}>${route.active ? '巡游进行中' : '派遣推荐灵兽'}</button>
+                <span class="muted">${route.canStart ? `由 ${route.recommendedBeast?.name ?? '推荐灵兽'} 执行` : (expedition.active ? '当前已有巡游任务，需先收取' : '暂未满足开放条件')}</span>
+              </div>
+            </div>
+          `).join('')}
         </div>
         <div class="log-list">
           ${beasts.map((beast) => {

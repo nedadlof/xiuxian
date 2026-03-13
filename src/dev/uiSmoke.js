@@ -647,11 +647,30 @@ async function runSmoke() {
       const afterApplyIds = [...(lineupState.beasts.activeIds ?? [])];
       assert(afterApplyIds.length >= 3, `推荐兽阵未补齐阵列: ${afterApplyIds.join(',')}`);
       assert(afterApplyIds.join(',') !== beforeApplyIds.join(','), `推荐兽阵未改变激活阵列: before=${beforeApplyIds.join(',')}, after=${afterApplyIds.join(',')}`);
+      assert(root.textContent.includes('灵兽巡游'), '灵兽页未渲染灵兽巡游');
+      const beforeRouteRewards = ['herb', 'wood', 'beastShard', 'pills']
+        .reduce((sum, resourceId) => sum + (lineupState.resources?.[resourceId] ?? 0), 0);
+      const beforeExpeditionHistory = lineupState.beasts.expedition?.history?.length ?? 0;
+      clickAction('start-beast-expedition', (element) => element.dataset.route === 'verdant-trail');
+      let expeditionState = harness.app.store.getState();
+      assert(expeditionState.beasts.expedition?.active?.routeId === 'verdant-trail', '灵兽巡游未成功开始');
+      harness.app.store.update((draft) => {
+        if (draft.beasts.expedition?.active) {
+          draft.beasts.expedition.active.completesAt = Date.now() - 1000;
+        }
+      }, { type: 'smoke/beast-expedition-complete' });
+      clickAction('claim-beast-expedition');
+      expeditionState = harness.app.store.getState();
+      const afterRouteRewards = ['herb', 'wood', 'beastShard', 'pills']
+        .reduce((sum, resourceId) => sum + (expeditionState.resources?.[resourceId] ?? 0), 0);
+      assert(!expeditionState.beasts.expedition?.active, '灵兽巡游领取后仍残留进行中状态');
+      assert((expeditionState.beasts.expedition?.history?.length ?? 0) > beforeExpeditionHistory, '灵兽巡游未写入历史');
+      assert(afterRouteRewards > beforeRouteRewards, `灵兽巡游未增加资源: before=${beforeRouteRewards}, after=${afterRouteRewards}`);
       assert(root.textContent.includes('灵兽养成'), '灵兽页未渲染养成说明');
       assert(root.textContent.includes('兽契共鸣'), '灵兽页未渲染兽契共鸣');
       assert(root.textContent.includes('灵兽羁绊'), '灵兽页未渲染灵兽羁绊');
       assert(root.textContent.includes('灾庭猎阵'), '灵兽页未展示推荐兽阵羁绊');
-      return `灵兽 ${beastId} 激活状态 ${wasActive} -> ${isActive}，觉醒 ${beforeAwakening} -> ${afterAwakening}，兽契 ${beforeBond} -> ${afterBond}，推荐兽阵=${afterApplyIds.join('/')}`;
+      return `灵兽 ${beastId} 激活状态 ${wasActive} -> ${isActive}，觉醒 ${beforeAwakening} -> ${afterAwakening}，兽契 ${beforeBond} -> ${afterBond}，推荐兽阵=${afterApplyIds.join('/')}，巡游记录=${expeditionState.beasts.expedition?.history?.length ?? 0}`;
     });
 
     await runCase('Save And Hydrate Cycle', async () => {

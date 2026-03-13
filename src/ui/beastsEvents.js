@@ -12,6 +12,12 @@ function handleBeastsUiAction({ action, element, app }) {
     case 'apply-recommended-beasts':
       app.bus.emit('action:beasts/applyRecommendedLineup');
       return true;
+    case 'start-beast-expedition':
+      app.bus.emit('action:beasts/startExpedition', { routeId: element.dataset.route });
+      return true;
+    case 'claim-beast-expedition':
+      app.bus.emit('action:beasts/claimExpedition');
+      return true;
     default:
       return false;
   }

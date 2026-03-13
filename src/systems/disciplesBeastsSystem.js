@@ -7,6 +7,7 @@ import {
   getDiscipleResonanceTitle,
 } from '../data/discipleAdvancement.js';
 import { getBeastBondSnapshot } from '../data/beastBonds.js';
+import { getBeastExpeditionDefinition, listBeastExpeditionDefinitions } from '../data/beastExpeditions.js';
 import { getExpeditionBondSnapshot } from '../data/expeditionBonds.js';
 import {
   filterCandidatesByGuarantee,
@@ -51,6 +52,12 @@ function ensureCharacterState(state) {
   state.beasts.activeIds ??= [];
   state.beasts.awakeningLevels ??= {};
   state.beasts.bondLevels ??= {};
+  state.beasts.expedition ??= {
+    active: null,
+    history: [],
+  };
+  state.beasts.expedition.active ??= null;
+  state.beasts.expedition.history ??= [];
 
   for (const discipleId of state.disciples.owned ?? []) {
     if (!state.disciples.levels[discipleId]) {
@@ -299,6 +306,14 @@ export function createDisciplesBeastsSystem() {
 
       bus.on('action:beasts/applyRecommendedLineup', () => {
         applyRecommendedBeastLineup({ store, bus, registries });
+      });
+
+      bus.on('action:beasts/startExpedition', ({ routeId }) => {
+        startBeastExpedition({ store, bus, registries }, routeId);
+      });
+
+      bus.on('action:beasts/claimExpedition', () => {
+        claimBeastExpedition({ store, bus, registries });
       });
     },
     tick({ store }) {
@@ -586,6 +601,130 @@ function canTemperBeast(level = 0) {
   return level < 10;
 }
 
+function addResourceMap(state, resourceMap) {
+  for (const [resourceId, amount] of Object.entries(resourceMap ?? {})) {
+    state.resources[resourceId] = (state.resources?.[resourceId] ?? 0) + amount;
+  }
+}
+
+function mergeResourceMaps(...maps) {
+  const merged = {};
+  for (const map of maps) {
+    for (const [resourceId, amount] of Object.entries(map ?? {})) {
+      merged[resourceId] = (merged[resourceId] ?? 0) + amount;
+    }
+  }
+  return merged;
+}
+
+function scaleResourceMap(resourceMap, multiplier = 1) {
+  return Object.fromEntries(
+    Object.entries(resourceMap ?? {}).map(([resourceId, amount]) => [
+      resourceId,
+      Math.max(1, Math.round(amount * multiplier)),
+    ]),
+  );
+}
+
+function getBeastExpeditionQualityLabel(score = 0) {
+  if (score >= 70) {
+    return '大丰收';
+  }
+  if (score >= 48) {
+    return '顺利';
+  }
+  return '初探';
+}
+
+function evaluateBeastExpeditionCandidate(beast, definition) {
+  const preferredTags = new Set(definition?.preferredTags ?? []);
+  const preferredArchetypes = new Set(definition?.preferredArchetypes ?? []);
+  const tagMatches = (beast?.favoredTags ?? []).reduce((sum, tag) => sum + (preferredTags.has(tag) ? 1 : 0), 0);
+  const archetypeMatched = preferredArchetypes.has(beast?.archetype ?? '');
+  const awakeningLevel = beast?.awakeningLevel ?? 0;
+  const bondLevel = beast?.bondLevel ?? 0;
+  const fitScore = beast?.fitScore ?? 0;
+  const score = tagMatches * 18 + (archetypeMatched ? 10 : 0) + awakeningLevel * 8 + bondLevel * 6 + fitScore * 4;
+  const rewardMultiplier = 1 + tagMatches * 0.16 + (archetypeMatched ? 0.08 : 0) + awakeningLevel * 0.06 + bondLevel * 0.04;
+  const durationMultiplier = Math.max(0.55, 1 - tagMatches * 0.08 - (archetypeMatched ? 0.05 : 0) - awakeningLevel * 0.02 - bondLevel * 0.01);
+  const durationSeconds = Math.max(5 * 60, Math.round((definition?.baseDurationMinutes ?? 20) * 60 * durationMultiplier));
+  const bonusUnlocked = tagMatches >= 2 || score >= 48;
+
+  return {
+    beast,
+    tagMatches,
+    archetypeMatched,
+    score,
+    qualityLabel: getBeastExpeditionQualityLabel(score),
+    durationSeconds,
+    rewardMap: mergeResourceMaps(
+      scaleResourceMap(definition?.baseRewards ?? {}, rewardMultiplier),
+      bonusUnlocked ? { ...(definition?.bonusRewards ?? {}) } : {},
+    ),
+    bonusUnlocked,
+  };
+}
+
+function pickRecommendedBeastExpedition(beasts = [], definition = null) {
+  return beasts
+    .map((beast) => evaluateBeastExpeditionCandidate(beast, definition))
+    .sort((left, right) => (
+      (right.score - left.score)
+      || (right.tagMatches - left.tagMatches)
+      || ((right.beast?.bondLevel ?? 0) - (left.beast?.bondLevel ?? 0))
+      || ((right.beast?.awakeningLevel ?? 0) - (left.beast?.awakeningLevel ?? 0))
+      || (left.beast?.id ?? '').localeCompare(right.beast?.id ?? '')
+    ))[0] ?? null;
+}
+
+function getBeastExpeditionSnapshot(state, registries, beasts = getBeastSnapshot(state, registries)) {
+  const unlockedBeasts = beasts.filter((beast) => beast.unlocked);
+  const activeRecord = state.beasts?.expedition?.active
+    ? {
+      ...state.beasts.expedition.active,
+      rewardMap: { ...(state.beasts.expedition.active.rewardMap ?? {}) },
+    }
+    : null;
+  const now = Date.now();
+  const active = activeRecord
+    ? {
+      ...activeRecord,
+      completed: (activeRecord.completesAt ?? 0) <= now,
+      remainingSeconds: Math.max(0, Math.ceil(((activeRecord.completesAt ?? 0) - now) / 1000)),
+    }
+    : null;
+  const history = Array.isArray(state.beasts?.expedition?.history)
+    ? state.beasts.expedition.history.slice(0, 6).map((entry) => ({
+      ...entry,
+      rewardMap: { ...(entry.rewardMap ?? {}) },
+    }))
+    : [];
+  const routes = listBeastExpeditionDefinitions().map((definition) => {
+    const unlocked = unlockedBeasts.length >= (definition.minUnlockedBeasts ?? 1);
+    const recommendation = unlocked ? pickRecommendedBeastExpedition(unlockedBeasts, definition) : null;
+
+    return {
+      ...definition,
+      unlocked,
+      recommendedBeast: recommendation?.beast ?? null,
+      recommendationScore: recommendation?.score ?? 0,
+      tagMatches: recommendation?.tagMatches ?? 0,
+      qualityLabel: recommendation?.qualityLabel ?? '待解锁',
+      durationSeconds: recommendation?.durationSeconds ?? Math.round((definition.baseDurationMinutes ?? 20) * 60),
+      rewardPreview: recommendation?.rewardMap ?? { ...(definition.baseRewards ?? {}) },
+      bonusUnlocked: recommendation?.bonusUnlocked ?? false,
+      canStart: !active && unlocked && Boolean(recommendation?.beast),
+      active: active?.routeId === definition.id,
+    };
+  });
+
+  return {
+    active,
+    history,
+    routes,
+  };
+}
+
 function getBeastLineupSignature(beastIds = []) {
   return [...beastIds].sort().join(':');
 }
@@ -828,6 +967,79 @@ export function advanceDiscipleResonance({ store, registries }, discipleId) {
   return success;
 }
 
+export function startBeastExpedition({ store, registries }, routeId) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCharacterState(draft);
+    if (draft.beasts.expedition?.active) {
+      return;
+    }
+
+    const definition = getBeastExpeditionDefinition(routeId);
+    if (!definition) {
+      return;
+    }
+
+    const beasts = getBeastSnapshot(draft, registries).filter((beast) => beast.unlocked);
+    if (beasts.length < (definition.minUnlockedBeasts ?? 1)) {
+      return;
+    }
+
+    const recommendation = pickRecommendedBeastExpedition(beasts, definition);
+    if (!recommendation?.beast) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    draft.beasts.expedition.active = {
+      routeId: definition.id,
+      routeName: definition.name,
+      beastId: recommendation.beast.id,
+      beastName: recommendation.beast.name,
+      qualityLabel: recommendation.qualityLabel,
+      durationSeconds: recommendation.durationSeconds,
+      startedAt,
+      completesAt: startedAt + recommendation.durationSeconds * 1000,
+      tagMatches: recommendation.tagMatches,
+      rewardMap: { ...recommendation.rewardMap },
+    };
+    appendLog(
+      draft,
+      'beasts',
+      `${recommendation.beast.name} 已启程执行 ${definition.name}，预计带回 ${recommendation.qualityLabel} 收获`,
+    );
+    success = true;
+  }, { type: 'beasts/start-expedition', routeId });
+
+  return success;
+}
+
+export function claimBeastExpedition({ store }) {
+  let success = false;
+
+  store.update((draft) => {
+    ensureCharacterState(draft);
+    const active = draft.beasts.expedition?.active;
+    if (!active || (active.completesAt ?? 0) > Date.now()) {
+      return;
+    }
+
+    addResourceMap(draft, active.rewardMap);
+    draft.beasts.expedition.history.unshift({
+      ...active,
+      rewardMap: { ...(active.rewardMap ?? {}) },
+      claimedAt: Date.now(),
+    });
+    draft.beasts.expedition.history = draft.beasts.expedition.history.slice(0, 8);
+    draft.beasts.expedition.active = null;
+    appendLog(draft, 'beasts', `${active.beastName} 完成 ${active.routeName}，带回一批巡游收获`);
+    success = true;
+  }, { type: 'beasts/claim-expedition' });
+
+  return success;
+}
+
 export function getDisciplesSnapshot(state, registries) {
   const unlocked = new Set(state.disciples.unlocked ?? []);
   const owned = new Set(state.disciples.owned);
@@ -1064,5 +1276,6 @@ export function getBeastMenagerieSnapshot(state, registries) {
         sameAsActive: Boolean(activeSignature && activeSignature === recommendedSignature),
       }
       : null,
+    expedition: getBeastExpeditionSnapshot(state, registries, beasts),
   };
 }

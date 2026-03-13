@@ -3316,3 +3316,108 @@ This file is a UTF-8 continuation summary because `docs/module-summary.md` is no
   - `cmd /c run_ui_smoke.cmd --timeout 70`
   - result:
     - `SMOKE PASS 15/15`
+
+## 2026-03-13 灵兽巡游与寻脉挂机支线
+
+- Main goal:
+  - give beasts an idle gameplay branch beyond battle lineup and growth
+  - let players make a short but meaningful recurring decision:
+    - which route to run
+    - which recommended beast to send
+    - when to claim the reward and loop again
+
+- New route data:
+  - added `src/data/beastExpeditions.js`
+  - current expedition routes:
+    - `林渊巡猎`
+    - `炎脉寻火`
+    - `荒城拾遗`
+  - each route now defines:
+    - preferred tags
+    - preferred archetypes
+    - unlock threshold by beast count
+    - base duration
+    - base rewards
+    - bonus rewards
+
+- Beast system upgrade:
+  - upgraded `src/systems/disciplesBeastsSystem.js`
+  - added:
+    - beast expedition recommendation scoring
+    - route reward preview generation
+    - `startBeastExpedition(...)`
+    - `claimBeastExpedition(...)`
+    - expedition data inside `getBeastMenagerieSnapshot(...)`
+  - current recommendation logic considers:
+    - beast favored tags
+    - beast archetype
+    - awakening level
+    - beast-contract level
+    - current stage fit score
+  - one active expedition is supported in this version, with recent history retained
+
+- Persistence update:
+  - upgraded `src/core/store.js`
+  - beast state now explicitly persists:
+    - `beasts.expedition.active`
+    - `beasts.expedition.history`
+
+- UI update:
+  - upgraded `src/ui/panels/beastsPanel.js`
+  - beasts page now includes a dedicated `灵兽巡游` section:
+    - current expedition status
+    - remaining time / claim state
+    - recent expedition rewards
+    - route list with recommended beast and projected rewards
+  - interaction remains short:
+    - choose route
+    - `派遣推荐灵兽`
+    - wait
+    - `收取巡游战利`
+  - upgraded `src/ui/beastsEvents.js`
+  - added support for:
+    - `start-beast-expedition`
+    - `claim-beast-expedition`
+  - upgraded `src/ui/panelRenderers.js`
+  - passed resource label helper into the beasts panel so expedition rewards render with in-game names
+
+- Reward linkage:
+  - expedition rewards intentionally reuse existing resources:
+    - `herb`
+    - `wood`
+    - `beastShard`
+    - `spiritCrystal`
+    - `pills`
+    - `talisman`
+    - `lingStone`
+    - `discipleShard`
+    - `dao`
+  - this keeps the new beast idle branch connected to:
+    - beast growth
+    - alchemy
+    - talisman crafting
+    - disciple recruitment
+    - long-term economy planning
+
+- Smoke update:
+  - upgraded `Beasts Unlock And Toggle`
+  - smoke now verifies:
+    - beast recommendation lineup still works
+    - beasts page renders `灵兽巡游`
+    - an expedition route can start
+    - expedition completion can be claimed
+    - expedition rewards increase resources
+    - expedition history is recorded
+
+- Verified locally:
+  - `node --check src/data/beastExpeditions.js`
+  - `node --check src/core/store.js`
+  - `node --check src/systems/disciplesBeastsSystem.js`
+  - `node --check src/ui/beastsEvents.js`
+  - `node --check src/ui/panelRenderers.js`
+  - `node --check src/ui/panels/beastsPanel.js`
+  - `node --check src/dev/uiSmoke.js`
+  - `cmd /c run_ui_smoke.cmd --timeout 70`
+  - result:
+    - `SMOKE PASS 15/15`
+    - smoke shutdown may still print a local Python `ConnectionResetError`; this remains local server shutdown noise rather than a regression
